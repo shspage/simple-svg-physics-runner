@@ -10,11 +10,11 @@
 ![description](https://github.com/shspage/simple-svg-physics-runner/blob/master/image/description.gif)
 
 ### How to use
-* Hit "v" to load SVG code in clipboard. (Chrome 66 or later)  
+* Hit "v" to load SVG code from clipboard. (Chrome 66 or later)  
   alternatively, drag and drop SVG file to load.
 
 * After loading, the objects filled with **black** stay on fixed position.  
-  Other objeces move according to the law of physics, and draggable.
+  Other objects move according to the law of physics, and draggable.
 
 * It loads only paths (circle and polygon). Compound paths are not available.  
   Also, **the curve other than the circle** becomes a polygonal line.
@@ -32,9 +32,9 @@ https://shspage.github.io/simple-svg-physics-runner/
 
 ### Note:
 * Loading from the clipboard does not work with the http protocol (works with https or file)
-* Non-convex polygons in SVG data automatically become a group of convex polygons,
-and when saved as SVG, they are output as it is (a group of convex polygons).
-* In Illustrator, the original path may be changed automatically when SVG code is output / generated.
+* Non-convex polygons in SVG data are automatically converted to a group of convex polygons,
+and when you save them as SVG, they are exported as it is (a group of convex polygons).
+* In Illustrator, the original path may be changed automatically when SVG code is generated.
 For example, a line whose "line position" is not "center" is converted to a compound path with fill color of original line color.
 A compound path is not displayed on the screen because it is not processed by this script.
 * When stacking objects are output as SVG, you may notice where the edges of the objects dig into each other.
@@ -43,7 +43,7 @@ If there is enough processing power of your computer, you can mitigate this by i
 Either way, I guess, for a physics engine, some error may be necessary for stability of processing.)
 There are some other constants you can change in the above script beginning part.
 However, it does not cover all attributes.
-For details, please refer to Matter.js document.
+For the details about attributes, please refer to Matter.js document.
 
 ### TODO
 * Loading from the clipboard with firefox
