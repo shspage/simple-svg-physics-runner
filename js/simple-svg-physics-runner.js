@@ -1,7 +1,7 @@
 /*
 simple-svg-physics-runner
 
-2018.08.16
+2018.08.24, v.1.0.1
 
 * Copyright(c) 2018 Hiroyuki Sato
   https://github.com/shspage/simple-svg-physics-runner
@@ -41,9 +41,9 @@ required libraries (and the version tested with)
     const FRICTIONAIR_HIGH = 0.8;      // 空気抵抗=重い の値
 
     // Matter.Engine properties
-    // The higher the value, the higher quality the simulation will be at the expense of performance.
-    // 各値を増やすことでパフォーマンスと引き換えにシミュレーションの品質を上げることができる。
-    // 各値がどのように影響するかは、Demo頁の右から引き出せるスライダ群を操作してみると手掛かりになるかも。
+    // * The higher the value, the higher quality the simulation will be at the expense of performance.
+    // * 各値を増やすことでパフォーマンスと引き換えにシミュレーションの品質を上げることができる。
+    //   各値がどのように影響するかは、Demo頁の右から引き出せるスライダ群を操作してみると手掛かりになるかも。
     const ENGINE_POSITION_ITERATIONS = 12;  // positionIterations, default=6
     const ENGINE_VELOCITY_ITERATIONS = 4;  // velocityIterations, default=4
     const ENGINE_CONSTRAINT_ITERATIONS = 2;  // constraintIterations, default=2
@@ -67,6 +67,19 @@ required libraries (and the version tested with)
         wireframes: false,
         gravity_y:1,
         frictionAir:FRICTIONAIR_DEFAULT
+    }
+
+    // * Ratio to consider pass as circle (Larger ÷ Smaller)
+    //   bounds: width to height ratio
+    //   length, area : ratio between "the perimeter and area calculated using
+    //       the width as diameter" and "actual value"
+    // * パスを円と見なす比率（大きい方÷小さい方）
+    //   bounds: 幅と高さの比率
+    //   perimeter, area : 幅を直径として算出した円の周長・面積と、実際の値との比率
+    var _circleRatioLimit = {
+        bounds : 1.02,
+        perimeter : 1.05,
+        area : 1.02
     }
     
     var _messages;
@@ -196,6 +209,7 @@ required libraries (and the version tested with)
                 window.innerWidth, window.innerHeight);
             
             paper.project.importSVG(data);
+            fixTopLeftAfterImport();
             paper2matter();
             
             alert("LOADED");
@@ -204,17 +218,45 @@ required libraries (and the version tested with)
         }
     }
 
+    function fixTopLeftAfterImport(){
+        var items = paper.project.activeLayer.children;
+        
+        if(items.length > 0){
+            var top = items[0].bounds.top;
+            var left = items[0].bounds.left;
+            
+            for(var i = 1, iEnd = items.length; i < iEnd; i++){
+                top = Math.min(top, items[i].bounds.top);
+                left = Math.min(left, items[i].bounds.left);
+            }
+            
+            if(top != 0 || left != 0){
+                var delta = new paper.Point(-left, -top);
+                for(var i = 0, iEnd = items.length; i < iEnd; i++){
+                    items[i].translate(delta);
+                }
+            }
+        }
+    }
+
     // ----------------------
     // functions to convert data, from paper.js to Matter.js
     // ----------------------
-    // クリップボードまたはファイルからのSVGデータ取り込み。
-    // paper.js の importSVG で行う。Matter.js にも SVG 取り込みの
-    // メソッドはあるが、サンプルコードにあるのは形状を取り込む処理
-    // だけで、色を取得する処理がない。SVG のデータも色々なものが
-    // あるので、自力で解析する処理を書くより、paper.js のクラスに
-    // 落とし込んだほうが扱いやすいと考えた。
-    // このためここでは、paper.js で取り込んだ Path を Matter.js の
-    // Body に変換する処理をしている。
+    // * Load SVG data from clipboard or file. Using "importSVG" of paper.js.
+    //   Matter.js also has SVG import method, but I couldn't find a sample
+    //   code to get color of each shape in SVG data. Since there may be
+    //   various format in SVG data, I thought that it is easier to handle
+    //   by putting it in the paper.js class rather than writing the analyzing
+    //   process by myself.  For this reason, at here, the Paths loaded with
+    //   paper.js are converted to Body object of Matter.js.
+    // * クリップボードまたはファイルからのSVGデータ取り込み。
+    //   paper.js の importSVG で行う。Matter.js にも SVG 取り込みの
+    //   メソッドはあるが、サンプルコードにあるのは形状を取り込む処理
+    //   だけで、色を取得する処理がない。SVG のデータも色々なものが
+    //   あるので、自力で解析する処理を書くより、paper.js のクラスに
+    //   落とし込んだほうが扱いやすいと考えた。
+    //   このためここでは、paper.js で取り込んだ Path を Matter.js の
+    //   Body に変換する処理をしている。
     
     function paper2matter(){
         var items = [];
@@ -232,10 +274,10 @@ required libraries (and the version tested with)
                 c.remove();
             } else if(c.className == "Shape" || c.className == "Path"){
                 var body;
-                if(c.shape == "circle"){
-                    body = createCircle(c);
-                } else if(c.shape == "rectangle"){
+                if(c.shape == "rectangle"){
                     body = createRectangle(c);
+                } else if(c.shape == "circle" || isCircle(c)){
+                    body = createCircle(c);
                 } else {
                     if(!c.segments){  // ellipse, etc.
                         continue;
@@ -252,10 +294,33 @@ required libraries (and the version tested with)
             }
         }
     }
+
+    function isCircle(item){
+        var b = item.bounds;
+        var boundsRatio = calcRatio(item.bounds.width, item.bounds.height);
+        var perimeterRatio = calcRatio(item.length, item.bounds.width * Math.PI);
+        var areaRatio = calcRatio(item.area, Math.pow(item.bounds.width / 2, 2) * Math.PI);
+        //console.log(boundsRatio + "/" + perimeterRatio + "/" + areaRatio);
+        
+        return boundsRatio < _circleRatioLimit.bounds
+          && perimeterRatio < _circleRatioLimit.perimeter
+            && areaRatio < _circleRatioLimit.area;
+    }
+
+    function calcRatio(a,b){
+        var v1, v2;
+        if(a > b){
+            v1 = a; v2 = b;
+        } else {
+            v1 = b; v2 = a;
+        }
+        if(v2 == 0) return Infinity;
+        return v1/v2;
+    }
     
     function createCircle(item){
         var b = item.bounds;
-        return Bodies.circle(b.center.x, b.center.y, item.size.width / 2, getStyle(item));
+        return Bodies.circle(b.center.x, b.center.y, b.width / 2, getStyle(item));
     }
 
     function createRectangle(item){

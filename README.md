@@ -45,6 +45,12 @@ There are some other constants you can change in the above script beginning part
 However, it does not cover all attributes.
 For the details about attributes, please refer to Matter.js document.
 
+### ChangeLog
+#### v.1.0.1
+* A path is regarded as a circle if the difference between the width and the height and the difference between the circumference / area calculated from the width as the diameter and the actual value is less than the set value.  
+(This is for SVG files created with Inkscape. Classification methods may need further consideration.)
+* Adjusting the upper left corner of the loaded figure to be at the upper left of the canvas.
+
 ### TODO
 * Loading from the clipboard with firefox
 * flattening curves including ellipses automatically
