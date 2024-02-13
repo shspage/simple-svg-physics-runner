@@ -1,7 +1,7 @@
 /*
 simple-svg-physics-runner
 
-2018.08.24, v.1.0.1
+2024.02.13, v.1.0.2
 
 * Copyright(c) 2018 Hiroyuki Sato
   https://github.com/shspage/simple-svg-physics-runner
@@ -47,7 +47,22 @@ required libraries (and the version tested with)
     const ENGINE_POSITION_ITERATIONS = 12;  // positionIterations, default=6
     const ENGINE_VELOCITY_ITERATIONS = 4;  // velocityIterations, default=4
     const ENGINE_CONSTRAINT_ITERATIONS = 2;  // constraintIterations, default=2
-      
+
+
+    // AS_BLACK_THRESHOLD_RGB:
+    // * In Illustrator, black in CMYK mode is not converted to #000 in generated SVG code.
+    //   This means the object doesn't stay on fixed position.
+    //   So, set the upper limit of RGB values that is considered black. (0-255 = 0-1)
+    //   If all RGB values are below the upper limit, it will be converted to #000,
+    //   and it will also be #000 when exporting.
+    //   If you ignore CMYK mode, it's OK to set this [0,0,0].
+    // * イラレのCMYKモードでの黒(K100)は、生成されるSVGコードでは#000にならない。
+    //   つまり位置が固定されない。
+    //   以下で黒と見なすRGBそれぞれの上限値を設定しておくと(0～255 を 0～1 とする）、
+    //   RGB全てが上限値以下の場合に#000に変換され、エクスポート時も#000になる。
+    //   CMYKモードを考慮しない場合は [0,0,0] に設定してもよい。
+    const AS_BLACK_THRESHOLD_RGB = [0.1373, 0.0942, 0.0824]; // about #231815
+
     paper.setup("hidden_canvas");
     
     var Body = Matter.Body,
@@ -342,8 +357,15 @@ required libraries (and the version tested with)
     }
 
     function isFilledBlack(item){
+        var result = false;
         var fc = item.fillColor;
-        return (fc && fc.red == 0 && fc.green == 0 && fc.blue == 0);
+        //return (fc && fc.red == 0 && fc.green == 0 && fc.blue == 0);
+        var rgb = AS_BLACK_THRESHOLD_RGB;
+        if(fc && fc.red <= rgb[0] && fc.green <= rgb[1] && fc.blue <= rgb[2]){
+            fc.red = 0; fc.green = 0; fc.blue = 0;
+            result = true;
+        }
+        return result;
     }
 
     function color2css(col, nullValue){

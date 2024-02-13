@@ -45,7 +45,18 @@ There are some other constants you can change in the above script beginning part
 However, it does not cover all attributes.
 For the details about attributes, please refer to Matter.js document.
 
+* In Illustrator, black (K100) in CMYK mode is not converted to #000 in the generated SVG code.
+This means the object doesn't stay on fixed position.
+So, if RGB is (35,24,21) or lower respectively, it is considered black and converted to #000,
+and it is also set to #000 when exporting.
+If you do not want to perform this color conversion, please set AS_BLACK_THRESHOLD_RGB to [0,0,0]
+in simple-svg-physics-runner.js.
+
+
 ### ChangeLog
+#### v.1.0.2
+* Added a setting of upper limit of RGB values ​​to be considered as black. (AS_BLACK_THRESHOLD_RGB)
+
 #### v.1.0.1
 * A path is regarded as a circle if the difference between the width and the height and the difference between the circumference / area calculated from the width as the diameter and the actual value is less than the set value.  
 (This is for SVG files created with Inkscape. Classification methods may need further consideration.)
