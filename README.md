@@ -29,7 +29,8 @@
 
 ----
 
-* Illustrator: If there's a group with a name that starts with "chain", the objects in the group are chained vertically, anchored at the top. 
+* Illustrator: If there's a group with a name that starts with "chain", the objects in the group are chained vertically, anchored at the top.   
+video - https://twitter.com/shspage/status/1757720353638674790
 
 ### Try using
 https://shspage.github.io/simple-svg-physics-runner/

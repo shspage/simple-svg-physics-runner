@@ -33,7 +33,8 @@
 
 ----
 
-* Illustrator: 「chain」で始まる名前のグループがある場合、グループ内のオブジェクトは垂直方向に連結され、上部で固定されます。
+* Illustrator: 「chain」で始まる名前のグループがある場合、グループ内のオブジェクトは垂直方向に連結され、上部で固定されます。  
+video - https://twitter.com/shspage/status/1757720353638674790
 
 ### 使ってみる
 https://shspage.github.io/simple-svg-physics-runner/
