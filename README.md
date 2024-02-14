@@ -5,7 +5,7 @@
 ### Summary
 * Loading SVG data on the browser via file or clipboard.
 * Applying physical effects to it.
-* Putting out SVG data.
+* Putting out SVG data.  
 
 ![description](https://github.com/shspage/simple-svg-physics-runner/blob/master/image/description.gif)
 
@@ -26,6 +26,10 @@
 * Hit "a" to toggle air resistance normal/HIGH
 
 * "w", "g" and "a" can be set before loading.
+
+----
+
+* Illustrator: If there's a group with a name that starts with "chain", the objects in the group are chained vertically, anchored at the top. 
 
 ### Try using
 https://shspage.github.io/simple-svg-physics-runner/
@@ -56,6 +60,7 @@ in simple-svg-physics-runner.js.
 ### ChangeLog
 #### v.1.0.2
 * Added a setting of upper limit of RGB values ​​to be considered as black. (AS_BLACK_THRESHOLD_RGB)
+* Illustrator: Added a function to connect objects in the vertical direction when the group name starts with "chain".
 
 #### v.1.0.1
 * A path is regarded as a circle if the difference between the width and the height and the difference between the circumference / area calculated from the width as the diameter and the actual value is less than the set value.  

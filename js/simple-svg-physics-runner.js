@@ -72,9 +72,10 @@ required libraries (and the version tested with)
         MouseConstraint = Matter.MouseConstraint,
         Render = Matter.Render,
         Runner = Matter.Runner,
+        Constraint = Matter.Constraint,
+        Composites = Matter.Composites,
         Composite = Matter.Composite,
-        Engine = Matter.Engine,
-        World = Matter.World;
+        Engine = Matter.Engine;
 
     var _spec = {
         url:null,
@@ -155,8 +156,8 @@ required libraries (and the version tested with)
             }
         });
 
-        World.add(_engine.world, mouseConstraint);
-        World.add(_engine.world, items);
+        Composite.add(_engine.world, mouseConstraint);
+        Composite.add(_engine.world, items);
         
         _render.mouse = mouse;
     
@@ -275,20 +276,28 @@ required libraries (and the version tested with)
     
     function paper2matter(){
         var items = [];
-        extractItems(paper.project.activeLayer.children, items);
+        extractItems(paper.project.activeLayer.children, items, "");
         paper.project.clear();
         setupWorld(items);
     }
 
-    function extractItems(children, items){
+    function extractItems(children, items, parent_name){
+        var grp, grp_type;
+        if(parent_name && parent_name.startsWith("chain")){
+            grp = Composite.create();
+            grp_type = "chain";
+        }
+
         for(var i = children.length - 1; i >= 0; i--){
             var c = children[i];
-            if(c.className == 'Group' || c.className == 'Layer'){
-                extractItems(c.children, items);
+            var body;
+            if(c.className == 'Layer'){
+                extractItems(c.children, items, "");
+            } else if(c.className == 'Group'){
+                extractItems(c.children, items, c.name);
             } else if(c.clipMask){
                 c.remove();
             } else if(c.className == "Shape" || c.className == "Path"){
-                var body;
                 if(c.shape == "rectangle"){
                     body = createRectangle(c);
                 } else if(c.shape == "circle" || isCircle(c)){
@@ -302,11 +311,36 @@ required libraries (and the version tested with)
                         body = createPolygon(c);
                     }
                 }
-                items.push(body);
+
+                if(grp_type == "chain"){
+                    Composite.addBody(grp, body);
+                } else {
+                    items.push(body);
+                }
 
                 // 元の style を保持し、出力時に反映する
-                _styles[body.id] = new SavedStyle(c);
+                if(body){
+                    _styles[body.id] = new SavedStyle(c);
+                }
             }
+        }
+
+        if(grp_type == "chain"){
+            // sort bodies from top to bottom. the pivot of chain is placed at the top body.
+            if(grp.bodies.length > 1){
+                grp.bodies.sort(function(a,b){ return a.position.y - b.position.y; });
+                Composites.chain(grp, 0, 0.5, 0, -0.5, { stiffness: 1, length: 1, render: { visible:false } });    
+            }
+            var b = grp.bodies[0];
+            var bHeight = b.bounds.max.y - b.bounds.min.y
+            Composite.add(grp, Constraint.create({
+                bodyB: b,
+                pointB: { x: 0, y: -bHeight / 2 },
+                pointA: { x: b.position.x, y: b.position.y - bHeight / 2},
+                stiffness: 1,
+                render: { visible:false }
+            }));    
+            items.push(grp);
         }
     }
 
@@ -315,7 +349,6 @@ required libraries (and the version tested with)
         var boundsRatio = calcRatio(item.bounds.width, item.bounds.height);
         var perimeterRatio = calcRatio(item.length, item.bounds.width * Math.PI);
         var areaRatio = calcRatio(item.area, Math.pow(item.bounds.width / 2, 2) * Math.PI);
-        //console.log(boundsRatio + "/" + perimeterRatio + "/" + areaRatio);
         
         return boundsRatio < _circleRatioLimit.bounds
           && perimeterRatio < _circleRatioLimit.perimeter
