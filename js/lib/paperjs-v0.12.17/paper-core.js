@@ -1,29 +1,29 @@
 /*!
- * Paper.js v0.11.5 - The Swiss Army Knife of Vector Graphics Scripting.
+ * Paper.js v0.12.17 - The Swiss Army Knife of Vector Graphics Scripting.
  * http://paperjs.org/
  *
- * Copyright (c) 2011 - 2016, Juerg Lehni & Jonathan Puckey
- * http://scratchdisk.com/ & http://jonathanpuckey.com/
+ * Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey
+ * http://juerglehni.com/ & https://puckey.studio/
  *
  * Distributed under the MIT license. See LICENSE file for details.
  *
  * All rights reserved.
  *
- * Date: Thu Oct 5 16:16:29 2017 +0200
+ * Date: Thu Nov 3 21:15:36 2022 +0100
  *
  ***
  *
  * Straps.js - Class inheritance library with support for bean-style accessors
  *
- * Copyright (c) 2006 - 2016 Juerg Lehni
- * http://scratchdisk.com/
+ * Copyright (c) 2006 - 2020 Jürg Lehni
+ * http://juerglehni.com/
  *
  * Distributed under the MIT license.
  *
  ***
  *
  * Acorn.js
- * http://marijnhaverbeke.nl/acorn/
+ * https://marijnhaverbeke.nl/acorn/
  *
  * Acorn is a tiny, fast JavaScript parser written in JavaScript,
  * created by Marijn Haverbeke and released under an MIT license.
@@ -378,26 +378,52 @@ statics: {
 
 	readNamed: function(list, name, start, options, amount) {
 		var value = this.getNamed(list, name),
-			hasObject = value !== undefined;
-		if (hasObject) {
+			hasValue = value !== undefined;
+		if (hasValue) {
 			var filtered = list.__filtered;
 			if (!filtered) {
-				filtered = list.__filtered = Base.create(list[0]);
-				filtered.__unfiltered = list[0];
+				var source = this.getSource(list);
+				filtered = list.__filtered = Base.create(source);
+				filtered.__unfiltered = source;
 			}
 			filtered[name] = undefined;
 		}
-		var l = hasObject ? [value] : list,
-			res = this.read(l, start, options, amount);
-		return res;
+		return this.read(hasValue ? [value] : list, start, options, amount);
+	},
+
+	readSupported: function(list, dest) {
+		var source = this.getSource(list),
+			that = this,
+			read = false;
+		if (source) {
+			Object.keys(source).forEach(function(key) {
+				if (key in dest) {
+					var value = that.readNamed(list, key);
+					if (value !== undefined) {
+						dest[key] = value;
+					}
+					read = true;
+				}
+			});
+		}
+		return read;
+	},
+
+	getSource: function(list) {
+		var source = list.__source;
+		if (source === undefined) {
+			var arg = list.length === 1 && list[0];
+			source = list.__source = arg && Base.isPlainObject(arg)
+				? arg : null;
+		}
+		return source;
 	},
 
 	getNamed: function(list, name) {
-		var arg = list[0];
-		if (list._hasObject === undefined)
-			list._hasObject = list.length === 1 && Base.isPlainObject(arg);
-		if (list._hasObject)
-			return name ? arg[name] : list.__filtered || arg;
+		var source = this.getSource(list);
+		if (source) {
+			return name ? source[name] : list.__filtered || source;
+		}
 	},
 
 	hasNamed: function(list, name) {
@@ -515,8 +541,7 @@ statics: {
 				if (create) {
 					res = create(type, args, isFirst || _isRoot);
 				} else {
-					res = Base.create(type.prototype);
-					type.apply(res, args);
+					res = new type(args);
 				}
 			}
 		} else if (Base.isPlainObject(json)) {
@@ -547,14 +572,32 @@ statics: {
 					if (args.length === 1 && obj instanceof Item
 							&& (useTarget || !(obj instanceof Layer))) {
 						var arg = args[0];
-						if (Base.isPlainObject(arg))
+						if (Base.isPlainObject(arg)) {
 							arg.insert = false;
+							if (useTarget) {
+								args = args.concat([Item.INSERT]);
+							}
+						}
 					}
 					(useTarget ? obj.set : ctor).apply(obj, args);
 					if (useTarget)
 						target = null;
 					return obj;
 				});
+	},
+
+	push: function(list, items) {
+		var itemsLength = items.length;
+		if (itemsLength < 4096) {
+			list.push.apply(list, items);
+		} else {
+			var startLength = list.length;
+			list.length += itemsLength;
+			for (var i = 0; i < itemsLength; i++) {
+				list[startLength + i] = items[i];
+			}
+		}
+		return list;
 	},
 
 	splice: function(list, items, index, remove) {
@@ -566,12 +609,12 @@ statics: {
 		for (var i = 0; i < amount; i++)
 			items[i]._index = index + i;
 		if (append) {
-			list.push.apply(list, items);
+			Base.push(list, items);
 			return [];
 		} else {
 			var args = [index, remove];
 			if (items)
-				args.push.apply(args, items);
+				Base.push(args, items);
 			var removed = list.splice.apply(list, args);
 			for (var i = 0, l = removed.length; i < l; i++)
 				removed[i]._index = undefined;
@@ -643,9 +686,9 @@ var Emitter = {
 	},
 
 	once: function(type, func) {
-		return this.on(type, function() {
+		return this.on(type, function handler() {
 			func.apply(this, arguments);
-			this.off(type, func);
+			this.off(type, handler);
 		});
 	},
 
@@ -758,14 +801,14 @@ var PaperScope = Base.extend({
 			if (platform)
 				agent[platform] = true;
 			user.replace(
-				/(opera|chrome|safari|webkit|firefox|msie|trident|atom|node)\/?\s*([.\d]+)(?:.*version\/([.\d]+))?(?:.*rv\:v?([.\d]+))?/g,
+				/(opera|chrome|safari|webkit|firefox|msie|trident|atom|node|jsdom)\/?\s*([.\d]+)(?:.*version\/([.\d]+))?(?:.*rv\:v?([.\d]+))?/g,
 				function(match, n, v1, v2, rv) {
 					if (!agent.chrome) {
 						var v = n === 'opera' ? v2 :
 								/^(node|trident)$/.test(n) ? rv : v1;
 						agent.version = v;
 						agent.versionNumber = parseFloat(v);
-						n = n === 'trident' ? 'msie' : n;
+						n = { trident: 'msie', jsdom: 'node' }[n] || n;
 						agent.name = n;
 						agent[n] = true;
 					}
@@ -778,7 +821,7 @@ var PaperScope = Base.extend({
 		}
 	},
 
-	version: "0.11.5",
+	version: "0.12.17",
 
 	getView: function() {
 		var project = this.project;
@@ -790,8 +833,6 @@ var PaperScope = Base.extend({
 	},
 
 	execute: function(code, options) {
-		paper.PaperScript.execute(code, this, options);
-		View.updateFocus();
 	},
 
 	install: function(scope) {
@@ -897,6 +938,164 @@ var PaperScopeItem = Base.extend(Emitter, {
 		return this._scope.getView();
 	}
 });
+
+var CollisionDetection = {
+	findItemBoundsCollisions: function(items1, items2, tolerance) {
+		function getBounds(items) {
+			var bounds = new Array(items.length);
+			for (var i = 0; i < items.length; i++) {
+				var rect = items[i].getBounds();
+				bounds[i] = [rect.left, rect.top, rect.right, rect.bottom];
+			}
+			return bounds;
+		}
+
+		var bounds1 = getBounds(items1),
+			bounds2 = !items2 || items2 === items1
+				? bounds1
+				: getBounds(items2);
+		return this.findBoundsCollisions(bounds1, bounds2, tolerance || 0);
+	},
+
+	findCurveBoundsCollisions: function(curves1, curves2, tolerance, bothAxis) {
+		function getBounds(curves) {
+			var min = Math.min,
+				max = Math.max,
+				bounds = new Array(curves.length);
+			for (var i = 0; i < curves.length; i++) {
+				var v = curves[i];
+				bounds[i] = [
+					min(v[0], v[2], v[4], v[6]),
+					min(v[1], v[3], v[5], v[7]),
+					max(v[0], v[2], v[4], v[6]),
+					max(v[1], v[3], v[5], v[7])
+				];
+			}
+			return bounds;
+		}
+
+		var bounds1 = getBounds(curves1),
+			bounds2 = !curves2 || curves2 === curves1
+				? bounds1
+				: getBounds(curves2);
+		if (bothAxis) {
+			var hor = this.findBoundsCollisions(
+					bounds1, bounds2, tolerance || 0, false, true),
+				ver = this.findBoundsCollisions(
+					bounds1, bounds2, tolerance || 0, true, true),
+				list = [];
+			for (var i = 0, l = hor.length; i < l; i++) {
+				list[i] = { hor: hor[i], ver: ver[i] };
+			}
+			return list;
+		}
+		return this.findBoundsCollisions(bounds1, bounds2, tolerance || 0);
+	},
+
+	findBoundsCollisions: function(boundsA, boundsB, tolerance,
+		sweepVertical, onlySweepAxisCollisions) {
+		var self = !boundsB || boundsA === boundsB,
+			allBounds = self ? boundsA : boundsA.concat(boundsB),
+			lengthA = boundsA.length,
+			lengthAll = allBounds.length;
+
+		function binarySearch(indices, coord, value) {
+			var lo = 0,
+				hi = indices.length;
+			while (lo < hi) {
+				var mid = (hi + lo) >>> 1;
+				if (allBounds[indices[mid]][coord] < value) {
+					lo = mid + 1;
+				} else {
+					hi = mid;
+				}
+			}
+			return lo - 1;
+		}
+
+		var pri0 = sweepVertical ? 1 : 0,
+			pri1 = pri0 + 2,
+			sec0 = sweepVertical ? 0 : 1,
+			sec1 = sec0 + 2;
+		var allIndicesByPri0 = new Array(lengthAll);
+		for (var i = 0; i < lengthAll; i++) {
+			allIndicesByPri0[i] = i;
+		}
+		allIndicesByPri0.sort(function(i1, i2) {
+			return allBounds[i1][pri0] - allBounds[i2][pri0];
+		});
+		var activeIndicesByPri1 = [],
+			allCollisions = new Array(lengthA);
+		for (var i = 0; i < lengthAll; i++) {
+			var curIndex = allIndicesByPri0[i],
+				curBounds = allBounds[curIndex],
+				origIndex = self ? curIndex : curIndex - lengthA,
+				isCurrentA = curIndex < lengthA,
+				isCurrentB = self || !isCurrentA,
+				curCollisions = isCurrentA ? [] : null;
+			if (activeIndicesByPri1.length) {
+				var pruneCount = binarySearch(activeIndicesByPri1, pri1,
+						curBounds[pri0] - tolerance) + 1;
+				activeIndicesByPri1.splice(0, pruneCount);
+				if (self && onlySweepAxisCollisions) {
+					curCollisions = curCollisions.concat(activeIndicesByPri1);
+					for (var j = 0; j < activeIndicesByPri1.length; j++) {
+						var activeIndex = activeIndicesByPri1[j];
+						allCollisions[activeIndex].push(origIndex);
+					}
+				} else {
+					var curSec1 = curBounds[sec1],
+						curSec0 = curBounds[sec0];
+					for (var j = 0; j < activeIndicesByPri1.length; j++) {
+						var activeIndex = activeIndicesByPri1[j],
+							activeBounds = allBounds[activeIndex],
+							isActiveA = activeIndex < lengthA,
+							isActiveB = self || activeIndex >= lengthA;
+
+						if (
+							onlySweepAxisCollisions ||
+							(
+								isCurrentA && isActiveB ||
+								isCurrentB && isActiveA
+							) && (
+								curSec1 >= activeBounds[sec0] - tolerance &&
+								curSec0 <= activeBounds[sec1] + tolerance
+							)
+						) {
+							if (isCurrentA && isActiveB) {
+								curCollisions.push(
+									self ? activeIndex : activeIndex - lengthA);
+							}
+							if (isCurrentB && isActiveA) {
+								allCollisions[activeIndex].push(origIndex);
+							}
+						}
+					}
+				}
+			}
+			if (isCurrentA) {
+				if (boundsA === boundsB) {
+					curCollisions.push(curIndex);
+				}
+				allCollisions[curIndex] = curCollisions;
+			}
+			if (activeIndicesByPri1.length) {
+				var curPri1 = curBounds[pri1],
+					index = binarySearch(activeIndicesByPri1, pri1, curPri1);
+				activeIndicesByPri1.splice(index + 1, 0, curIndex);
+			} else {
+				activeIndicesByPri1.push(curIndex);
+			}
+		}
+		for (var i = 0; i < allCollisions.length; i++) {
+			var collisions = allCollisions[i];
+			if (collisions) {
+				collisions.sort(function(i1, i2) { return i1 - i2; });
+			}
+		}
+		return allCollisions;
+	}
+};
 
 var Formatter = Base.extend({
 	initialize: function(precision) {
@@ -1019,10 +1218,15 @@ var Numerical = new function() {
 		CURVETIME_EPSILON: 1e-8,
 		GEOMETRIC_EPSILON: 1e-7,
 		TRIGONOMETRIC_EPSILON: 1e-8,
+		ANGULAR_EPSILON: 1e-5,
 		KAPPA: 4 * (sqrt(2) - 1) / 3,
 
 		isZero: function(val) {
 			return val >= -EPSILON && val <= EPSILON;
+		},
+
+		isMachineZero: function(val) {
+			return val >= -MACHINE_EPSILON && val <= MACHINE_EPSILON;
 		},
 
 		clamp: clamp,
@@ -1319,11 +1523,12 @@ var Point = Base.extend({
 	},
 
 	getDistance: function() {
-		var point = Point.read(arguments),
+		var args = arguments,
+			point = Point.read(args),
 			x = point.x - this.x,
 			y = point.y - this.y,
 			d = x * x + y * y,
-			squared = Base.read(arguments);
+			squared = Base.read(args);
 		return squared ? d : Math.sqrt(d);
 	},
 
@@ -1390,8 +1595,9 @@ var Point = Base.extend({
 	},
 
 	isClose: function() {
-		var point = Point.read(arguments),
-			tolerance = Base.read(arguments);
+		var args = arguments,
+			point = Point.read(args),
+			tolerance = Base.read(args);
 		return this.getDistance(point) <= tolerance;
 	},
 
@@ -1442,8 +1648,9 @@ var Point = Base.extend({
 
 	statics: {
 		min: function() {
-			var point1 = Point.read(arguments),
-				point2 = Point.read(arguments);
+			var args = arguments,
+				point1 = Point.read(args),
+				point2 = Point.read(args);
 			return new Point(
 				Math.min(point1.x, point2.x),
 				Math.min(point1.y, point2.y)
@@ -1451,8 +1658,9 @@ var Point = Base.extend({
 		},
 
 		max: function() {
-			var point1 = Point.read(arguments),
-				point2 = Point.read(arguments);
+			var args = arguments,
+				point1 = Point.read(args),
+				point2 = Point.read(args);
 			return new Point(
 				Math.max(point1.x, point2.x),
 				Math.max(point1.y, point2.y)
@@ -1699,7 +1907,8 @@ var Rectangle = Base.extend({
 	beans: true,
 
 	initialize: function Rectangle(arg0, arg1, arg2, arg3) {
-		var type = typeof arg0,
+		var args = arguments,
+			type = typeof arg0,
 			read;
 		if (type === 'number') {
 			this._set(arg0, arg1, arg2, arg3);
@@ -1707,7 +1916,7 @@ var Rectangle = Base.extend({
 		} else if (type === 'undefined' || arg0 === null) {
 			this._set(0, 0, 0, 0);
 			read = arg0 === null ? 1 : 0;
-		} else if (arguments.length === 1) {
+		} else if (args.length === 1) {
 			if (Array.isArray(arg0)) {
 				this._set.apply(this, arg0);
 				read = 1;
@@ -1717,20 +1926,20 @@ var Rectangle = Base.extend({
 				read = 1;
 			} else if (arg0.from === undefined && arg0.to === undefined) {
 				this._set(0, 0, 0, 0);
-				Base.filter(this, arg0);
-				read = 1;
+				if (Base.readSupported(args, this)) {
+					read = 1;
+				}
 			}
 		}
 		if (read === undefined) {
-			var frm = Point.readNamed(arguments, 'from'),
-				next = Base.peek(arguments),
+			var frm = Point.readNamed(args, 'from'),
+				next = Base.peek(args),
 				x = frm.x,
 				y = frm.y,
 				width,
 				height;
-			if (next && next.x !== undefined
-					|| Base.hasNamed(arguments, 'to')) {
-				var to = Point.readNamed(arguments, 'to');
+			if (next && next.x !== undefined || Base.hasNamed(args, 'to')) {
+				var to = Point.readNamed(args, 'to');
 				width = to.x - x;
 				height = to.y - y;
 				if (width < 0) {
@@ -1742,16 +1951,16 @@ var Rectangle = Base.extend({
 					height = -height;
 				}
 			} else {
-				var size = Size.read(arguments);
+				var size = Size.read(args);
 				width = size.width;
 				height = size.height;
 			}
 			this._set(x, y, width, height);
-			read = arguments.__index;
-			var filtered = arguments.__filtered;
-			if (filtered)
-				this.__filtered = filtered;
+			read = args.__index;
 		}
+		var filtered = args.__filtered;
+		if (filtered)
+			this.__filtered = filtered;
 		if (this.__read)
 			this.__read = read;
 		return this;
@@ -2109,10 +2318,11 @@ var Matrix = Base.extend({
 	_class: 'Matrix',
 
 	initialize: function Matrix(arg, _dontNotify) {
-		var count = arguments.length,
+		var args = arguments,
+			count = args.length,
 			ok = true;
 		if (count >= 6) {
-			this._set.apply(this, arguments);
+			this._set.apply(this, args);
 		} else if (count === 1 || count === 2) {
 			if (arg instanceof Matrix) {
 				this._set(arg._a, arg._b, arg._c, arg._d, arg._tx, arg._ty,
@@ -2158,7 +2368,7 @@ var Matrix = Base.extend({
 			if (owner._applyMatrix) {
 				owner.transform(null, true);
 			} else {
-				owner._changed(9);
+				owner._changed(25);
 			}
 		}
 	},
@@ -2193,8 +2403,7 @@ var Matrix = Base.extend({
 	apply: function(recursively, _setApplyMatrix) {
 		var owner = this._owner;
 		if (owner) {
-			owner.transform(null, true, Base.pick(recursively, true),
-					_setApplyMatrix);
+			owner.transform(null, Base.pick(recursively, true), _setApplyMatrix);
 			return this.isIdentity();
 		}
 		return false;
@@ -2211,8 +2420,9 @@ var Matrix = Base.extend({
 	},
 
 	scale: function() {
-		var scale = Point.read(arguments),
-			center = Point.read(arguments, 0, { readNull: true });
+		var args = arguments,
+			scale = Point.read(args),
+			center = Point.read(args, 0, { readNull: true });
 		if (center)
 			this.translate(center);
 		this._a *= scale.x;
@@ -2249,8 +2459,9 @@ var Matrix = Base.extend({
 	},
 
 	shear: function() {
-		var shear = Point.read(arguments),
-			center = Point.read(arguments, 0, { readNull: true });
+		var args = arguments,
+			shear = Point.read(args),
+			center = Point.read(args, 0, { readNull: true });
 		if (center)
 			this.translate(center);
 		var a = this._a,
@@ -2266,8 +2477,9 @@ var Matrix = Base.extend({
 	},
 
 	skew: function() {
-		var skew = Point.read(arguments),
-			center = Point.read(arguments, 0, { readNull: true }),
+		var args = arguments,
+			skew = Point.read(args),
+			center = Point.read(args, 0, { readNull: true }),
 			toRadians = Math.PI / 180,
 			shear = new Point(Math.tan(skew.x * toRadians),
 				Math.tan(skew.y * toRadians));
@@ -2507,11 +2719,11 @@ var Matrix = Base.extend({
 	},
 
 	getScaling: function() {
-		return (this.decompose() || {}).scaling;
+		return this.decompose().scaling;
 	},
 
 	getRotation: function() {
-		return (this.decompose() || {}).rotation;
+		return this.decompose().rotation;
 	},
 
 	applyToContext: function(ctx) {
@@ -2608,7 +2820,7 @@ var Line = Base.extend({
 				v2y -= p2y;
 			}
 			var cross = v1x * v2y - v1y * v2x;
-			if (!Numerical.isZero(cross)) {
+			if (!Numerical.isMachineZero(cross)) {
 				var dx = p1x - p2x,
 					dy = p1y - p2y,
 					u1 = (v2x * dy - v2y * dx) / cross,
@@ -2636,7 +2848,7 @@ var Line = Base.extend({
 			var v2x = x - px,
 				v2y = y - py,
 				ccw = v2x * vy - v2y * vx;
-			if (!isInfinite && Numerical.isZero(ccw)) {
+			if (!isInfinite && Numerical.isMachineZero(ccw)) {
 				ccw = (v2x * vx + v2x * vx) / (vx * vx + vy * vy);
 				if (ccw >= 0 && ccw <= 1)
 					ccw = 0;
@@ -2649,9 +2861,13 @@ var Line = Base.extend({
 				vx -= px;
 				vy -= py;
 			}
-			return vx === 0 ? vy > 0 ? x - px : px - x
-				 : vy === 0 ? vx < 0 ? y - py : py - y
-				 : ((x-px) * vy - (y-py) * vx) / Math.sqrt(vx * vx + vy * vy);
+			  return  vx === 0 ? (vy > 0 ? x - px : px - x)
+					: vy === 0 ? (vx < 0 ? y - py : py - y)
+					: ((x - px) * vy - (y - py) * vx) / (
+						vy > vx
+							? vy * Math.sqrt(1 + (vx * vx) / (vy * vy))
+							: vx * Math.sqrt(1 + (vy * vy) / (vx * vx))
+					);
 		},
 
 		getDistance: function(px, py, vx, vy, x, y, asVector) {
@@ -2920,6 +3136,7 @@ var Item = Base.extend(Emitter, {
 			return extend.base.apply(this, arguments);
 		},
 
+		INSERT: { insert: true },
 		NO_INSERT: { insert: false }
 	},
 
@@ -3006,13 +3223,13 @@ new function() {
 		matrix._owner = this;
 		this._style = new Style(project._currentStyle, this, project);
 		if (internal || hasProps && props.insert == false
-			|| !settings.insertItems && !(hasProps && props.insert === true)) {
+			|| !settings.insertItems && !(hasProps && props.insert == true)) {
 			this._setProject(project);
 		} else {
 			(hasProps && props.parent || project)
 					._insertItem(undefined, this, true);
 		}
-		if (hasProps && props !== Item.NO_INSERT) {
+		if (hasProps && props !== Item.NO_INSERT && props !== Item.INSERT) {
 			this.set(props, {
 				internal: true, insert: true, project: true, parent: true
 			});
@@ -3046,11 +3263,13 @@ new function() {
 			cacheParent = this._parent || symbol,
 			project = this._project;
 		if (flags & 8) {
-			this._bounds = this._position = this._decomposed =
-					this._globalMatrix = undefined;
+			this._bounds = this._position = this._decomposed = undefined;
+		}
+		if (flags & 16) {
+			this._globalMatrix = undefined;
 		}
 		if (cacheParent
-				&& (flags & 40)) {
+				&& (flags & 72)) {
 			Item._clearBoundsCache(cacheParent);
 		}
 		if (flags & 2) {
@@ -3086,7 +3305,7 @@ new function() {
 				children[name] = this;
 		}
 		this._name = name || undefined;
-		this._changed(128);
+		this._changed(256);
 	},
 
 	getStyle: function() {
@@ -3101,8 +3320,8 @@ new function() {
 		var part = Base.capitalize(name),
 			key = '_' + name,
 			flags = {
-				locked: 128,
-				visible: 137
+				locked: 256,
+				visible: 265
 			};
 		this['get' + part] = function() {
 			return this[key];
@@ -3110,7 +3329,7 @@ new function() {
 		this['set' + part] = function(value) {
 			if (value != this[key]) {
 				this[key] = value;
-				this._changed(flags[name] || 129);
+				this._changed(flags[name] || 257);
 			}
 		};
 	},
@@ -3127,7 +3346,7 @@ new function() {
 			var project = this._project;
 			if (project) {
 				project._updateSelection(this);
-				this._changed(129);
+				this._changed(257);
 			}
 		}
 	},
@@ -3188,9 +3407,9 @@ new function() {
 				this.setFillColor(null);
 				this.setStrokeColor(null);
 			}
-			this._changed(129);
+			this._changed(257);
 			if (this._parent)
-				this._parent._changed(1024);
+				this._parent._changed(2048);
 		}
 	},
 
@@ -3205,19 +3424,20 @@ new function() {
 	},
 
 	getPosition: function(_dontLink) {
-		var position = this._position,
-			ctor = _dontLink ? Point : LinkedPoint;
-		if (!position) {
-			var pivot = this._pivot;
-			position = this._position = pivot
-					? this._matrix._transformPoint(pivot)
-					: this.getBounds().getCenter(true);
-		}
+		var ctor = _dontLink ? Point : LinkedPoint;
+		var position = this._position ||
+			(this._position = this._getPositionFromBounds());
 		return new ctor(position.x, position.y, this, 'setPosition');
 	},
 
 	setPosition: function() {
 		this.translate(Point.read(arguments).subtract(this.getPosition(true)));
+	},
+
+	_getPositionFromBounds: function(bounds) {
+		return this._pivot
+				? this._matrix._transformPoint(this._pivot)
+				: (bounds || this.getBounds()).getCenter(true);
 	},
 
 	getPivot: function() {
@@ -3379,7 +3599,7 @@ new function() {
 			options = options || {};
 			for (var i = 0, l = items.length; i < l; i++) {
 				var item = items[i];
-				if (item._visible && !item.isEmpty()) {
+				if (item._visible && !item.isEmpty(true)) {
 					var bounds = item._getCachedBounds(
 						matrix && matrix.appended(item._matrix), options, true),
 						rect = bounds.rect;
@@ -3439,15 +3659,25 @@ new function() {
 			var rotation = this.getRotation(),
 				decomposed = this._decomposed,
 				matrix = new Matrix(),
-				center = this.getPosition(true);
-			matrix.translate(center);
-			if (rotation)
-				matrix.rotate(rotation);
-			matrix.scale(scaling.x / current.x, scaling.y / current.y);
-			if (rotation)
-				matrix.rotate(-rotation);
-			matrix.translate(center.negate());
-			this.transform(matrix);
+				isZero = Numerical.isZero;
+			if (isZero(current.x) || isZero(current.y)) {
+				matrix.translate(decomposed.translation);
+				if (rotation) {
+					matrix.rotate(rotation);
+				}
+				matrix.scale(scaling.x, scaling.y);
+				this._matrix.set(matrix);
+			} else {
+				var center = this.getPosition(true);
+				matrix.translate(center);
+				if (rotation)
+					matrix.rotate(rotation);
+				matrix.scale(scaling.x / current.x, scaling.y / current.y);
+				if (rotation)
+					matrix.rotate(-rotation);
+				matrix.translate(center.negate());
+				this.transform(matrix);
+			}
 			if (decomposed) {
 				decomposed.scaling = scaling;
 				this._decomposed = decomposed;
@@ -3461,20 +3691,31 @@ new function() {
 
 	setMatrix: function() {
 		var matrix = this._matrix;
-		matrix.initialize.apply(matrix, arguments);
+		matrix.set.apply(matrix, arguments);
 	},
 
 	getGlobalMatrix: function(_dontClone) {
-		var matrix = this._globalMatrix,
-			updateVersion = this._project._updateVersion;
-		if (matrix && matrix._updateVersion !== updateVersion)
-			matrix = null;
+		var matrix = this._globalMatrix;
+		if (matrix) {
+			var parent = this._parent;
+			var parents = [];
+			while (parent) {
+				if (!parent._globalMatrix) {
+					matrix = null;
+					for (var i = 0, l = parents.length; i < l; i++) {
+						parents[i]._globalMatrix = null;
+					}
+					break;
+				}
+				parents.push(parent);
+				parent = parent._parent;
+			}
+		}
 		if (!matrix) {
 			matrix = this._globalMatrix = this._matrix.clone();
 			var parent = this._parent;
 			if (parent)
 				matrix.prepend(parent.getGlobalMatrix(true));
-			matrix._updateVersion = updateVersion;
 		}
 		return _dontClone ? matrix : matrix.clone();
 	},
@@ -3649,33 +3890,54 @@ new function() {
 			this.setName(name);
 	},
 
-	rasterize: function(resolution, insert) {
+	rasterize: function(arg0, arg1) {
+		var resolution,
+			insert,
+			raster;
+		if (Base.isPlainObject(arg0)) {
+			resolution = arg0.resolution;
+			insert = arg0.insert;
+			raster = arg0.raster;
+		} else {
+			resolution = arg0;
+			insert = arg1;
+		}
+		if (!raster) {
+			raster = new Raster(Item.NO_INSERT);
+		}
 		var bounds = this.getStrokeBounds(),
 			scale = (resolution || this.getView().getResolution()) / 72,
 			topLeft = bounds.getTopLeft().floor(),
 			bottomRight = bounds.getBottomRight().ceil(),
-			size = new Size(bottomRight.subtract(topLeft)),
-			raster = new Raster(Item.NO_INSERT);
-		if (!size.isZero()) {
-			var canvas = CanvasProvider.getCanvas(size.multiply(scale)),
-				ctx = canvas.getContext('2d'),
+			boundsSize = new Size(bottomRight.subtract(topLeft)),
+			rasterSize = boundsSize.multiply(scale);
+		raster.setSize(rasterSize, true);
+
+		if (!rasterSize.isZero()) {
+			var ctx = raster.getContext(true),
 				matrix = new Matrix().scale(scale).translate(topLeft.negate());
 			ctx.save();
 			matrix.applyToContext(ctx);
 			this.draw(ctx, new Base({ matrices: [matrix] }));
 			ctx.restore();
-			raster.setCanvas(canvas);
 		}
-		raster.transform(new Matrix().translate(topLeft.add(size.divide(2)))
-				.scale(1 / scale));
-		if (insert === undefined || insert)
+		raster._matrix.set(
+			new Matrix()
+				.translate(topLeft.add(boundsSize.divide(2)))
+				.scale(1 / scale)
+		);
+		if (insert === undefined || insert) {
 			raster.insertAbove(this);
+		}
 		return raster;
 	},
 
 	contains: function() {
-		return !!this._contains(
-				this._matrix._inverseTransform(Point.read(arguments)));
+		var matrix = this._matrix;
+		return (
+			matrix.isInvertible() &&
+			!!this._contains(matrix._inverseTransform(Point.read(arguments)))
+		);
 	},
 
 	_contains: function(point) {
@@ -3711,16 +3973,18 @@ new function() {
 },
 new function() {
 	function hitTest() {
+		var args = arguments;
 		return this._hitTest(
-				Point.read(arguments),
-				HitResult.getOptions(arguments));
+				Point.read(args),
+				HitResult.getOptions(args));
 	}
 
 	function hitTestAll() {
-		var point = Point.read(arguments),
-			options = HitResult.getOptions(arguments),
+		var args = arguments,
+			point = Point.read(args),
+			options = HitResult.getOptions(args),
 			all = [];
-		this._hitTest(point, Base.set({ all: all }, options));
+		this._hitTest(point, new Base({ all: all }, options));
 		return all;
 	}
 
@@ -4099,6 +4363,8 @@ new function() {
 		var owner = this._getOwner(),
 			project = this._project,
 			index = this._index;
+		if (this._style)
+			this._style._dispose();
 		if (owner) {
 			if (this._name)
 				this._removeNamed();
@@ -4155,9 +4421,18 @@ new function() {
 		}
 	},
 
-	isEmpty: function() {
+	isEmpty: function(recursively) {
 		var children = this._children;
-		return !children || !children.length;
+		var numChildren = children ? children.length : 0;
+		if (recursively) {
+			for (var i = 0; i < numChildren; i++) {
+				if (!children[i].isEmpty(recursively)) {
+					return false;
+				}
+			}
+			return true;
+		}
+		return !numChildren;
 	},
 
 	isEditable: function() {
@@ -4256,8 +4531,9 @@ new function() {
 }, Base.each(['rotate', 'scale', 'shear', 'skew'], function(key) {
 	var rotate = key === 'rotate';
 	this[key] = function() {
-		var value = (rotate ? Base : Point).read(arguments),
-			center = Point.read(arguments, 0, { readNull: true });
+		var args = arguments,
+			value = (rotate ? Base : Point).read(args),
+			center = Point.read(args, 0, { readNull: true });
 		return this.transform(new Matrix()[key](value,
 				center || this.getPosition(true)));
 	};
@@ -4267,16 +4543,19 @@ new function() {
 		return this.transform(mx.translate.apply(mx, arguments));
 	},
 
-	transform: function(matrix, _applyMatrix, _applyRecursively,
-			_setApplyMatrix) {
+	transform: function(matrix, _applyRecursively, _setApplyMatrix) {
 		var _matrix = this._matrix,
-			transform = matrix && !matrix.isIdentity(),
-			applyMatrix = (_applyMatrix || this._applyMatrix)
-					&& ((!_matrix.isIdentity() || transform)
-						|| _applyMatrix && _applyRecursively && this._children);
-		if (!transform && !applyMatrix)
+			transformMatrix = matrix && !matrix.isIdentity(),
+			applyMatrix = (
+				_setApplyMatrix && this._canApplyMatrix ||
+				this._applyMatrix && (
+					transformMatrix || !_matrix.isIdentity() ||
+					_applyRecursively && this._children
+				)
+			);
+		if (!transformMatrix && !applyMatrix)
 			return this;
-		if (transform) {
+		if (transformMatrix) {
 			if (!matrix.isInvertible() && _matrix.isInvertible())
 				_matrix._backup = _matrix.getValues();
 			_matrix.prepend(matrix, true);
@@ -4288,8 +4567,9 @@ new function() {
 			if (strokeColor)
 				strokeColor.transform(matrix);
 		}
-		if (applyMatrix && (applyMatrix = this._transformContent(_matrix,
-				_applyRecursively, _setApplyMatrix))) {
+
+		if (applyMatrix && (applyMatrix = this._transformContent(
+				_matrix, _applyRecursively, _setApplyMatrix))) {
 			var pivot = this._pivot;
 			if (pivot)
 				_matrix._transformPoint(pivot, pivot, true);
@@ -4299,10 +4579,10 @@ new function() {
 		}
 		var bounds = this._bounds,
 			position = this._position;
-		if (transform || applyMatrix) {
-			this._changed(9);
+		if (transformMatrix || applyMatrix) {
+			this._changed(25);
 		}
-		var decomp = transform && bounds && matrix.decompose();
+		var decomp = transformMatrix && bounds && matrix.decompose();
 		if (decomp && decomp.skewing.isZero() && decomp.rotation % 90 === 0) {
 			for (var key in bounds) {
 				var cache = bounds[key];
@@ -4315,11 +4595,11 @@ new function() {
 			}
 			this._bounds = bounds;
 			var cached = bounds[this._getBoundsCacheKey(
-					this._boundsOptions || {})];
+				this._boundsOptions || {})];
 			if (cached) {
-				this._position = cached.rect.getCenter(true);
+				this._position = this._getPositionFromBounds(cached.rect);
 			}
-		} else if (transform && position && this._pivot) {
+		} else if (transformMatrix && position && this._pivot) {
 			this._position = matrix._transformPoint(position, position);
 		}
 		return this;
@@ -4328,9 +4608,9 @@ new function() {
 	_transformContent: function(matrix, applyRecursively, setApplyMatrix) {
 		var children = this._children;
 		if (children) {
-			for (var i = 0, l = children.length; i < l; i++)
-				children[i].transform(matrix, true, applyRecursively,
-						setApplyMatrix);
+			for (var i = 0, l = children.length; i < l; i++) {
+				children[i].transform(matrix, applyRecursively, setApplyMatrix);
+			}
 			return true;
 		}
 	},
@@ -4429,12 +4709,11 @@ new function() {
 
 		matrices.push(globalMatrix);
 		if (param.updateMatrix) {
-			globalMatrix._updateVersion = updateVersion;
 			this._globalMatrix = globalMatrix;
 		}
 
 		var blendMode = this._blendMode,
-			opacity = this._opacity,
+			opacity = Numerical.clamp(this._opacity, 0, 1),
 			normalBlend = blendMode === 'normal',
 			nativeBlend = BlendMode.nativeModes[blendMode],
 			direct = normalBlend && opacity === 1
@@ -4446,8 +4725,10 @@ new function() {
 			mainCtx, itemOffset, prevOffset;
 		if (!direct) {
 			var bounds = this.getStrokeBounds(viewMatrix);
-			if (!bounds.width || !bounds.height)
+			if (!bounds.width || !bounds.height) {
+				matrices.pop();
 				return;
+			}
 			prevOffset = param.offset;
 			itemOffset = param.offset = bounds.getTopLeft().floor();
 			mainCtx = ctx;
@@ -4485,8 +4766,9 @@ new function() {
 		this._draw(ctx, param, viewMatrix, strokeMatrix);
 		ctx.restore();
 		matrices.pop();
-		if (param.clip && !param.dontFinish)
-			ctx.clip();
+		if (param.clip && !param.dontFinish) {
+			ctx.clip(this.getFillRule());
+		}
 		if (!direct) {
 			BlendMode.process(blendMode, ctx, mainCtx, opacity,
 					itemOffset.subtract(prevOffset).multiply(pixelRatio));
@@ -4528,7 +4810,9 @@ new function() {
 			if (itemSelected)
 				this._drawSelected(ctx, mx, selectionItems);
 			if (positionSelected) {
-				var point = this.getPosition(true),
+				var pos = this.getPosition(true),
+					parent = this._parent,
+					point = parent ? parent.localToGlobal(pos) : pos,
 					x = point.x,
 					y = point.y;
 				ctx.beginPath();
@@ -4585,7 +4869,43 @@ new function() {
 		}
 		return this;
 	}
-}));
+}), {
+	tween: function(from, to, options) {
+		if (!options) {
+			options = to;
+			to = from;
+			from = null;
+			if (!options) {
+				options = to;
+				to = null;
+			}
+		}
+		var easing = options && options.easing,
+			start = options && options.start,
+			duration = options != null && (
+				typeof options === 'number' ? options : options.duration
+			),
+			tween = new Tween(this, from, to, duration, easing, start);
+		function onFrame(event) {
+			tween._handleFrame(event.time * 1000);
+			if (!tween.running) {
+				this.off('frame', onFrame);
+			}
+		}
+		if (duration) {
+			this.on('frame', onFrame);
+		}
+		return tween;
+	},
+
+	tweenTo: function(to, options) {
+		return this.tween(null, to, options);
+	},
+
+	tweenFrom: function(from, options) {
+		return this.tween(from, null, options);
+	}
+});
 
 var Group = Item.extend({
 	_class: 'Group',
@@ -4604,7 +4924,7 @@ var Group = Item.extend({
 
 	_changed: function _changed(flags) {
 		_changed.base.call(this, flags);
-		if (flags & 1026) {
+		if (flags & 2050) {
 			this._clipItem = undefined;
 		}
 	},
@@ -4638,8 +4958,7 @@ var Group = Item.extend({
 	_getBounds: function _getBounds(matrix, options) {
 		var clipItem = this._getClipItem();
 		return clipItem
-			? clipItem._getCachedBounds(
-				matrix && matrix.appended(clipItem._matrix),
+			? clipItem._getCachedBounds(clipItem._matrix.prepended(matrix),
 				Base.set({}, options, { stroke: false }))
 			: _getBounds.base.call(this, matrix, options);
 	},
@@ -4745,7 +5064,7 @@ var Shape = Item.extend({
 				width = size.width,
 				height = size.height;
 			if (type === 'rectangle') {
-				this._radius.set(Size.min(this._radius, size.divide(2)));
+				this._radius.set(Size.min(this._radius, size.divide(2).abs()));
 			} else if (type === 'circle') {
 				width = height = (width + height) / 2;
 				this._radius = width / 2;
@@ -4983,34 +5302,38 @@ new function() {
 
 statics: new function() {
 	function createShape(type, point, size, radius, args) {
-		var item = new Shape(Base.getNamed(args), point);
+		var item = Base.create(Shape.prototype);
 		item._type = type;
 		item._size = size;
 		item._radius = radius;
+		item._initialize(Base.getNamed(args), point);
 		return item;
 	}
 
 	return {
 		Circle: function() {
-			var center = Point.readNamed(arguments, 'center'),
-				radius = Base.readNamed(arguments, 'radius');
+			var args = arguments,
+				center = Point.readNamed(args, 'center'),
+				radius = Base.readNamed(args, 'radius');
 			return createShape('circle', center, new Size(radius * 2), radius,
-					arguments);
+					args);
 		},
 
 		Rectangle: function() {
-			var rect = Rectangle.readNamed(arguments, 'rectangle'),
-				radius = Size.min(Size.readNamed(arguments, 'radius'),
+			var args = arguments,
+				rect = Rectangle.readNamed(args, 'rectangle'),
+				radius = Size.min(Size.readNamed(args, 'radius'),
 						rect.getSize(true).divide(2));
 			return createShape('rectangle', rect.getCenter(true),
-					rect.getSize(true), radius, arguments);
+					rect.getSize(true), radius, args);
 		},
 
 		Ellipse: function() {
-			var ellipse = Shape._readEllipse(arguments),
+			var args = arguments,
+				ellipse = Shape._readEllipse(args),
 				radius = ellipse.radius;
 			return createShape('ellipse', ellipse.center, radius.multiply(2),
-					radius, arguments);
+					radius, args);
 		},
 
 		_readEllipse: function(args) {
@@ -5039,16 +5362,33 @@ var Raster = Item.extend({
 		source: null
 	},
 	_prioritize: ['crossOrigin'],
+	_smoothing: 'low',
+	beans: true,
 
-	initialize: function Raster(object, position) {
-		if (!this._initialize(object,
-				position !== undefined && Point.read(arguments, 1))) {
-			var image = typeof object === 'string'
-					? document.getElementById(object) : object;
+	initialize: function Raster(source, position) {
+		if (!this._initialize(source,
+				position !== undefined && Point.read(arguments))) {
+			var image,
+				type = typeof source,
+				object = type === 'string'
+					? document.getElementById(source)
+					: type  === 'object'
+						? source
+						: null;
+			if (object && object !== Item.NO_INSERT) {
+				if (object.getContext || object.naturalHeight != null) {
+					image = object;
+				} else if (object) {
+					var size = Size.read(arguments);
+					if (!size.isZero()) {
+						image = CanvasProvider.getCanvas(size);
+					}
+				}
+			}
 			if (image) {
 				this.setImage(image);
 			} else {
-				this.setSource(object);
+				this.setSource(source);
 			}
 		}
 		if (!this._size) {
@@ -5080,20 +5420,23 @@ var Raster = Item.extend({
 				this, 'setSize');
 	},
 
-	setSize: function() {
+	setSize: function(_size, _clear) {
 		var size = Size.read(arguments);
 		if (!size.equals(this._size)) {
 			if (size.width > 0 && size.height > 0) {
-				var element = this.getElement();
+				var element = !_clear && this.getElement();
 				this._setImage(CanvasProvider.getCanvas(size));
-				if (element)
+				if (element) {
 					this.getContext(true).drawImage(element, 0, 0,
 							size.width, size.height);
+				}
 			} else {
 				if (this._canvas)
 					CanvasProvider.release(this._canvas);
 				this._size = size.clone();
 			}
+		} else if (_clear) {
+			this.clear();
 		}
 	},
 
@@ -5181,7 +5524,7 @@ var Raster = Item.extend({
 				image ? image.naturalWidth || image.width : 0,
 				image ? image.naturalHeight || image.height : 0);
 		this._context = null;
-		this._changed(521);
+		this._changed(1033);
 	},
 
 	getCanvas: function() {
@@ -5200,12 +5543,12 @@ var Raster = Item.extend({
 
 	setCanvas: '#setImage',
 
-	getContext: function(modify) {
+	getContext: function(_change) {
 		if (!this._context)
 			this._context = this.getCanvas().getContext('2d');
-		if (modify) {
+		if (_change) {
 			this._image = null;
-			this._changed(513);
+			this._changed(1025);
 		}
 		return this._context;
 	},
@@ -5224,7 +5567,8 @@ var Raster = Item.extend({
 			crossOrigin = this._crossOrigin;
 		if (crossOrigin)
 			image.crossOrigin = crossOrigin;
-		image.src = src;
+		if (src)
+			image.src = src;
 		this.setImage(image);
 	},
 
@@ -5238,6 +5582,17 @@ var Raster = Item.extend({
 		var image = this._image;
 		if (image)
 			image.crossOrigin = crossOrigin;
+	},
+
+	getSmoothing: function() {
+		return this._smoothing;
+	},
+
+	setSmoothing: function(smoothing) {
+		this._smoothing = typeof smoothing === 'string'
+			? smoothing
+			: smoothing ? 'low' : 'off';
+		this._changed(257);
 	},
 
 	getElement: function() {
@@ -5342,8 +5697,9 @@ var Raster = Item.extend({
 	},
 
 	setPixel: function() {
-		var point = Point.read(arguments),
-			color = Color.read(arguments),
+		var args = arguments,
+			point = Point.read(args),
+			color = Color.read(args),
 			components = color._convert('rgb'),
 			alpha = color._alpha,
 			ctx = this.getContext(true),
@@ -5354,6 +5710,11 @@ var Raster = Item.extend({
 		data[2] = components[2] * 255;
 		data[3] = alpha != null ? alpha * 255 : 255;
 		ctx.putImageData(imageData, point.x, point.y);
+	},
+
+	clear: function() {
+		var size = this._size;
+		this.getContext(true).clearRect(0, 0, size.width + 1, size.height + 1);
 	},
 
 	createImageData: function() {
@@ -5369,9 +5730,14 @@ var Raster = Item.extend({
 				rect.width, rect.height);
 	},
 
-	setImageData: function(data ) {
+	putImageData: function(data ) {
 		var point = Point.read(arguments, 1);
 		this.getContext(true).putImageData(data, point.x, point.y);
+	},
+
+	setImageData: function(data) {
+		this.setSize(data);
+		this.getContext(true).putImageData(data, 0, 0);
 	},
 
 	_getBounds: function(matrix, options) {
@@ -5393,10 +5759,21 @@ var Raster = Item.extend({
 		}
 	},
 
-	_draw: function(ctx) {
+	_draw: function(ctx, param, viewMatrix) {
 		var element = this.getElement();
-		if (element) {
-			ctx.globalAlpha = this._opacity;
+		if (element && element.width > 0 && element.height > 0) {
+			ctx.globalAlpha = Numerical.clamp(this._opacity, 0, 1);
+
+			this._setStyles(ctx, param, viewMatrix);
+
+			var smoothing = this._smoothing,
+				disabled = smoothing === 'off';
+			DomElement.setPrefixed(
+				ctx,
+				disabled ? 'imageSmoothingEnabled' : 'imageSmoothingQuality',
+				disabled ? false : smoothing
+			);
+
 			ctx.drawImage(element,
 					-this._size.width / 2, -this._size.height / 2);
 		}
@@ -5453,7 +5830,8 @@ var SymbolItem = Item.extend({
 	},
 
 	_hitTestSelf: function(point, options, viewMatrix) {
-		var res = this._definition._item._hitTest(point, options, viewMatrix);
+		var opts = options.extend({ all: false });
+		var res = this._definition._item._hitTest(point, opts, viewMatrix);
 		if (res)
 			res.item = this;
 		return res;
@@ -5538,7 +5916,7 @@ var HitResult = Base.extend({
 	statics: {
 		getOptions: function(args) {
 			var options = args && Base.read(args);
-			return Base.set({
+			return new Base({
 				type: null,
 				tolerance: paper.settings.hitTolerance,
 				fill: !options,
@@ -5617,7 +5995,7 @@ var Segment = Base.extend({
 					&& (curve = curves[index]))
 				curve._changed();
 		}
-		path._changed(25);
+		path._changed(41);
 	},
 
 	getPoint: function() {
@@ -5670,7 +6048,7 @@ var Segment = Base.extend({
 		this._selection = selection = selection || 0;
 		if (path && selection !== oldSelection) {
 			path._updateSelection(this, oldSelection, selection);
-			path._changed(129);
+			path._changed(257);
 		}
 	},
 
@@ -6463,13 +6841,13 @@ statics: {
 		}
 
 		padding /= 2;
-		var minPad = min[coord] - padding,
-			maxPad = max[coord] + padding;
+		var minPad = min[coord] + padding,
+			maxPad = max[coord] - padding;
 		if (    v0 < minPad || v1 < minPad || v2 < minPad || v3 < minPad ||
 				v0 > maxPad || v1 > maxPad || v2 > maxPad || v3 > maxPad) {
 			if (v1 < v0 != v1 < v3 && v2 < v0 != v2 < v3) {
-				add(v0, padding);
-				add(v3, padding);
+				add(v0, 0);
+				add(v3, 0);
 			} else {
 				var a = 3 * (v1 - v2) - v0 + v3,
 					b = 2 * (v0 + v2) - 4 * v1,
@@ -6597,6 +6975,13 @@ statics: {
 	},
 
 	getParameterAt: '#getTimeAt',
+
+	getTimesWithTangent: function () {
+		var tangent = Point.read(arguments);
+		return tangent.isZero()
+				? []
+				: Curve.getTimesWithTangent(this.getValues(), tangent);
+	},
 
 	getOffsetAtTime: function(t) {
 		return this.getPartLength(0, t);
@@ -6958,8 +7343,9 @@ new function() {
 					flip ? c1 : c2, flip ? t : u);
 		} else {
 			v1 = Curve.getPart(v1, tMinClip, tMaxClip);
+			var uDiff = uMax - uMin;
 			if (tMaxClip - tMinClip > 0.8) {
-				if (tMaxNew - tMinNew > uMax - uMin) {
+				if (tMaxNew - tMinNew > uDiff) {
 					var parts = Curve.subdivide(v1, 0.5),
 						t = (tMinNew + tMaxNew) / 2;
 					calls = addCurveIntersections(
@@ -6979,7 +7365,7 @@ new function() {
 							recursion, calls, u, uMax, tMinNew, tMaxNew);
 				}
 			} else {
-				if (uMax - uMin >= fatLineEpsilon) {
+				if (uDiff === 0 || uDiff >= fatLineEpsilon) {
 					calls = addCurveIntersections(
 							v2, v1, c2, c1, locations, include, !flip,
 							recursion, calls, uMin, uMax, tMinNew, tMaxNew);
@@ -7147,7 +7533,7 @@ new function() {
 		return locations;
 	}
 
-	function getLoopIntersection(v1, c1, locations, include) {
+	function getSelfIntersection(v1, c1, locations, include) {
 		var info = Curve.classify(v1);
 		if (info.type === 'loop') {
 			var roots = info.roots;
@@ -7160,39 +7546,46 @@ new function() {
 
 	function getIntersections(curves1, curves2, include, matrix1, matrix2,
 			_returnFirst) {
-		var self = !curves2;
+		var epsilon = 1e-7,
+			self = !curves2;
 		if (self)
 			curves2 = curves1;
 		var length1 = curves1.length,
 			length2 = curves2.length,
-			values2 = [],
-			arrays = [],
-			locations,
-			current;
-		for (var i = 0; i < length2; i++)
-			values2[i] = curves2[i].getValues(matrix2);
+			values1 = new Array(length1),
+			values2 = self ? values1 : new Array(length2),
+			locations = [];
+
 		for (var i = 0; i < length1; i++) {
-			var curve1 = curves1[i],
-				values1 = self ? values2[i] : curve1.getValues(matrix1),
-				path1 = curve1.getPath();
-			if (path1 !== current) {
-				current = path1;
-				locations = [];
-				arrays.push(locations);
-			}
-			if (self) {
-				getLoopIntersection(values1, curve1, locations, include);
-			}
-			for (var j = self ? i + 1 : 0; j < length2; j++) {
-				if (_returnFirst && locations.length)
-					return locations;
-				getCurveIntersections(values1, values2[j], curve1, curves2[j],
-						locations, include);
+			values1[i] = curves1[i].getValues(matrix1);
+		}
+		if (!self) {
+			for (var i = 0; i < length2; i++) {
+				values2[i] = curves2[i].getValues(matrix2);
 			}
 		}
-		locations = [];
-		for (var i = 0, l = arrays.length; i < l; i++) {
-			locations.push.apply(locations, arrays[i]);
+		var boundsCollisions = CollisionDetection.findCurveBoundsCollisions(
+				values1, values2, epsilon);
+		for (var index1 = 0; index1 < length1; index1++) {
+			var curve1 = curves1[index1],
+				v1 = values1[index1];
+			if (self) {
+				getSelfIntersection(v1, curve1, locations, include);
+			}
+			var collisions1 = boundsCollisions[index1];
+			if (collisions1) {
+				for (var j = 0; j < collisions1.length; j++) {
+					if (_returnFirst && locations.length)
+						return locations;
+					var index2 = collisions1[j];
+					if (!self || index2 > index1) {
+						var curve2 = curves2[index2],
+							v2 = values2[index2];
+						getCurveIntersections(
+								v1, v2, curve1, curve2, locations, include);
+					}
+				}
+			}
 		}
 		return locations;
 	}
@@ -7267,18 +7660,58 @@ new function() {
 		return pairs;
 	}
 
+	function getTimesWithTangent(v, tangent) {
+		var x0 = v[0], y0 = v[1],
+			x1 = v[2], y1 = v[3],
+			x2 = v[4], y2 = v[5],
+			x3 = v[6], y3 = v[7],
+			normalized = tangent.normalize(),
+			tx = normalized.x,
+			ty = normalized.y,
+			ax = 3 * x3 - 9 * x2 + 9 * x1 - 3 * x0,
+			ay = 3 * y3 - 9 * y2 + 9 * y1 - 3 * y0,
+			bx = 6 * x2 - 12 * x1 + 6 * x0,
+			by = 6 * y2 - 12 * y1 + 6 * y0,
+			cx = 3 * x1 - 3 * x0,
+			cy = 3 * y1 - 3 * y0,
+			den = 2 * ax * ty - 2 * ay * tx,
+			times = [];
+		if (Math.abs(den) < Numerical.CURVETIME_EPSILON) {
+			var num = ax * cy - ay * cx,
+				den = ax * by - ay * bx;
+			if (den != 0) {
+				var t = -num / den;
+				if (t >= 0 && t <= 1) times.push(t);
+			}
+		} else {
+			var delta = (bx * bx - 4 * ax * cx) * ty * ty +
+				(-2 * bx * by + 4 * ay * cx + 4 * ax * cy) * tx * ty +
+				(by * by - 4 * ay * cy) * tx * tx,
+				k = bx * ty - by * tx;
+			if (delta >= 0 && den != 0) {
+				var d = Math.sqrt(delta),
+					t0 = -(k + d) / den,
+					t1 = (-k + d) / den;
+				if (t0 >= 0 && t0 <= 1) times.push(t0);
+				if (t1 >= 0 && t1 <= 1) times.push(t1);
+			}
+		}
+		return times;
+	}
+
 	return {
 		getIntersections: function(curve) {
 			var v1 = this.getValues(),
 				v2 = curve && curve !== this && curve.getValues();
 			return v2 ? getCurveIntersections(v1, v2, this, curve, [])
-					  : getLoopIntersection(v1, this, []);
+					  : getSelfIntersection(v1, this, []);
 		},
 
 		statics: {
 			getOverlaps: getOverlaps,
 			getIntersections: getIntersections,
-			getCurveLineIntersections: getCurveLineIntersections
+			getCurveLineIntersections: getCurveLineIntersections,
+			getTimesWithTangent: getTimesWithTangent
 		}
 	};
 });
@@ -7302,10 +7735,13 @@ var CurveLocation = Base.extend({
 		this._intersection = this._next = this._previous = null;
 	},
 
-	_setCurve: function(curve) {
-		var path = curve._path;
+	_setPath: function(path) {
 		this._path = path;
 		this._version = path ? path._version : 0;
+	},
+
+	_setCurve: function(curve) {
+		this._setPath(curve._path);
 		this._curve = curve;
 		this._segment = null;
 		this._segment1 = curve._segment1;
@@ -7313,7 +7749,14 @@ var CurveLocation = Base.extend({
 	},
 
 	_setSegment: function(segment) {
-		this._setCurve(segment.getCurve());
+		var curve = segment.getCurve();
+		if (curve) {
+			this._setCurve(curve);
+		} else {
+			this._setPath(segment._path);
+			this._segment1 = segment;
+			this._segment2 = null;
+		}
 		this._segment = segment;
 		this._time = segment === this._segment1 ? 0 : 1;
 		this._point = segment._point.clone();
@@ -7500,9 +7943,9 @@ var CurveLocation = Base.extend({
 		if (t1Inside && t2Inside)
 			return !this.isTouching();
 		var c2 = this.getCurve(),
-			c1 = t1 < tMin ? c2.getPrevious() : c2,
+			c1 = c2 && t1 < tMin ? c2.getPrevious() : c2,
 			c4 = inter.getCurve(),
-			c3 = t2 < tMin ? c4.getPrevious() : c4;
+			c3 = c4 && t2 < tMin ? c4.getPrevious() : c4;
 		if (t1 > tMax)
 			c2 = c2.getNext();
 		if (t2 > tMax)
@@ -7516,10 +7959,10 @@ var CurveLocation = Base.extend({
 			var v = curve.getValues(),
 				roots = Curve.classify(v).roots || Curve.getPeaks(v),
 				count = roots.length,
-				t = end && count > 1 ? roots[count - 1]
-						: count > 0 ? roots[0]
-						: 0.5;
-			offsets.push(Curve.getLength(v, end ? t : 0, end ? 1 : t) / 2);
+				offset = Curve.getLength(v,
+					end && count ? roots[count - 1] : 0,
+					!end && count ? roots[0] : 1);
+			offsets.push(count ? offset : offset / 32);
 		}
 
 		function isInRange(angle, min, max) {
@@ -7815,7 +8258,7 @@ var PathItem = Item.extend({
 
 	getCrossings: function(path) {
 		return this.getIntersections(path, function(inter) {
-			return inter.hasOverlap() || inter.isCrossing();
+			return inter.isCrossing();
 		});
 	},
 
@@ -7878,16 +8321,20 @@ var PathItem = Item.extend({
 				matched = [],
 				count = 0;
 			ok = true;
+			var boundsOverlaps = CollisionDetection.findItemBoundsCollisions(paths1, paths2, Numerical.GEOMETRIC_EPSILON);
 			for (var i1 = length1 - 1; i1 >= 0 && ok; i1--) {
 				var path1 = paths1[i1];
 				ok = false;
-				for (var i2 = length2 - 1; i2 >= 0 && !ok; i2--) {
-					if (path1.compare(paths2[i2])) {
-						if (!matched[i2]) {
-							matched[i2] = true;
-							count++;
+				var pathBoundsOverlaps = boundsOverlaps[i1];
+				if (pathBoundsOverlaps) {
+					for (var i2 = pathBoundsOverlaps.length - 1; i2 >= 0 && !ok; i2--) {
+						if (path1.compare(paths2[pathBoundsOverlaps[i2]])) {
+							if (!matched[pathBoundsOverlaps[i2]]) {
+								matched[pathBoundsOverlaps[i2]] = true;
+								count++;
+							}
+							ok = true;
 						}
-						ok = true;
 					}
 				}
 			}
@@ -7909,13 +8356,14 @@ var Path = PathItem.extend({
 		this._closed = false;
 		this._segments = [];
 		this._version = 0;
-		var segments = Array.isArray(arg)
+		var args = arguments,
+			segments = Array.isArray(arg)
 			? typeof arg[0] === 'object'
 				? arg
-				: arguments
+				: args
 			: arg && (arg.size === undefined && (arg.x !== undefined
 					|| arg.point !== undefined))
-				? arguments
+				? args
 				: null;
 		if (segments && segments.length > 0) {
 			this.setSegments(segments);
@@ -7944,13 +8392,13 @@ var Path = PathItem.extend({
 		_changed.base.call(this, flags);
 		if (flags & 8) {
 			this._length = this._area = undefined;
-			if (flags & 16) {
+			if (flags & 32) {
 				this._version++;
 			} else if (this._curves) {
 			   for (var i = 0, l = this._curves.length; i < l; i++)
 					this._curves[i]._changed();
 			}
-		} else if (flags & 32) {
+		} else if (flags & 64) {
 			this._bounds = undefined;
 		}
 	},
@@ -8025,7 +8473,7 @@ var Path = PathItem.extend({
 					this._curves[length - 1] = new Curve(this,
 						this._segments[length - 1], this._segments[0]);
 			}
-			this._changed(25);
+			this._changed(41);
 		}
 	}
 }, {
@@ -8115,7 +8563,7 @@ var Path = PathItem.extend({
 				this._updateSelection(segment, 0, segment._selection);
 		}
 		if (append) {
-			segments.push.apply(segments, segs);
+			Base.push(segments, segs);
 		} else {
 			segments.splice.apply(segments, [index, 0].concat(segs));
 			for (var i = index + amount, l = segments.length; i < l; i++)
@@ -8135,7 +8583,7 @@ var Path = PathItem.extend({
 				curves.splice(i, 0, new Curve(this, null, null));
 			this._adjustCurves(start, end);
 		}
-		this._changed(25);
+		this._changed(41);
 		return segs;
 	},
 
@@ -8167,15 +8615,17 @@ var Path = PathItem.extend({
 	},
 
 	add: function(segment1 ) {
-		return arguments.length > 1 && typeof segment1 !== 'number'
-			? this._add(Segment.readList(arguments))
-			: this._add([ Segment.read(arguments) ])[0];
+		var args = arguments;
+		return args.length > 1 && typeof segment1 !== 'number'
+			? this._add(Segment.readList(args))
+			: this._add([ Segment.read(args) ])[0];
 	},
 
 	insert: function(index, segment1 ) {
-		return arguments.length > 2 && typeof segment1 !== 'number'
-			? this._add(Segment.readList(arguments, 1), index)
-			: this._add([ Segment.read(arguments, 1) ], index)[0];
+		var args = arguments;
+		return args.length > 2 && typeof segment1 !== 'number'
+			? this._add(Segment.readList(args, 1), index)
+			: this._add([ Segment.read(args, 1) ], index)[0];
 	},
 
 	addSegment: function() {
@@ -8227,7 +8677,7 @@ var Path = PathItem.extend({
 				removed._curves = curves.slice(1);
 			this._adjustCurves(index, index);
 		}
-		this._changed(25);
+		this._changed(41);
 		return removed;
 	},
 
@@ -8883,13 +9333,39 @@ var Path = PathItem.extend({
 			return offset;
 		}
 		return null;
-	}
+	},
 
+	getOffsetsWithTangent: function() {
+		var tangent = Point.read(arguments);
+		if (tangent.isZero()) {
+			return [];
+		}
+
+		var offsets = [];
+		var curveStart = 0;
+		var curves = this.getCurves();
+		for (var i = 0, l = curves.length; i < l; i++) {
+			var curve = curves[i];
+			var curveTimes = curve.getTimesWithTangent(tangent);
+			for (var j = 0, m = curveTimes.length; j < m; j++) {
+				var offset = curveStart + curve.getOffsetAtTime(curveTimes[j]);
+				if (offsets.indexOf(offset) < 0) {
+					offsets.push(offset);
+				}
+			}
+			curveStart += curve.length;
+		}
+		return offsets;
+	}
 }),
 new function() {
 
 	function drawHandles(ctx, segments, matrix, size) {
+		if (size <= 0) return;
+
 		var half = size / 2,
+			miniSize = size - 2,
+			miniHalf = half - 1,
 			coords = new Array(6),
 			pX, pY;
 
@@ -8918,10 +9394,10 @@ new function() {
 			if (selection & 4)
 				drawHandle(4);
 			ctx.fillRect(pX - half, pY - half, size, size);
-			if (!(selection & 1)) {
+			if (miniSize > 0 && !(selection & 1)) {
 				var fillStyle = ctx.fillStyle;
 				ctx.fillStyle = '#ffffff';
-				ctx.fillRect(pX - half + 1, pY - half + 1, size - 2, size - 2);
+				ctx.fillRect(pX - miniHalf, pY - miniHalf, miniSize, miniSize);
 				ctx.fillStyle = fillStyle;
 			}
 		}
@@ -9023,7 +9499,6 @@ new function() {
 							length = flattener.length,
 							from = -style.getDashOffset(), to,
 							i = 0;
-						from = from % length;
 						while (from > 0) {
 							from -= getOffset(i--) + getOffset(i--);
 						}
@@ -9074,17 +9549,19 @@ new function() {
 		},
 
 		cubicCurveTo: function() {
-			var handle1 = Point.read(arguments),
-				handle2 = Point.read(arguments),
-				to = Point.read(arguments),
+			var args = arguments,
+				handle1 = Point.read(args),
+				handle2 = Point.read(args),
+				to = Point.read(args),
 				current = getCurrentSegment(this);
 			current.setHandleOut(handle1.subtract(current._point));
 			this._add([ new Segment(to, handle2.subtract(to)) ]);
 		},
 
 		quadraticCurveTo: function() {
-			var handle = Point.read(arguments),
-				to = Point.read(arguments),
+			var args = arguments,
+				handle = Point.read(args),
+				to = Point.read(args),
 				current = getCurrentSegment(this)._point;
 			this.cubicCurveTo(
 				handle.add(current.subtract(handle).multiply(1 / 3)),
@@ -9094,9 +9571,10 @@ new function() {
 		},
 
 		curveTo: function() {
-			var through = Point.read(arguments),
-				to = Point.read(arguments),
-				t = Base.pick(Base.read(arguments), 0.5),
+			var args = arguments,
+				through = Point.read(args),
+				to = Point.read(args),
+				t = Base.pick(Base.read(args), 0.5),
 				t1 = 1 - t,
 				current = getCurrentSegment(this)._point,
 				handle = through.subtract(current.multiply(t1 * t1))
@@ -9108,30 +9586,31 @@ new function() {
 		},
 
 		arcTo: function() {
-			var abs = Math.abs,
+			var args = arguments,
+				abs = Math.abs,
 				sqrt = Math.sqrt,
 				current = getCurrentSegment(this),
 				from = current._point,
-				to = Point.read(arguments),
+				to = Point.read(args),
 				through,
-				peek = Base.peek(arguments),
+				peek = Base.peek(args),
 				clockwise = Base.pick(peek, true),
 				center, extent, vector, matrix;
 			if (typeof clockwise === 'boolean') {
 				var middle = from.add(to).divide(2),
 				through = middle.add(middle.subtract(from).rotate(
 						clockwise ? -90 : 90));
-			} else if (Base.remain(arguments) <= 2) {
+			} else if (Base.remain(args) <= 2) {
 				through = to;
-				to = Point.read(arguments);
-			} else {
-				var radius = Size.read(arguments),
+				to = Point.read(args);
+			} else if (!from.equals(to)) {
+				var radius = Size.read(args),
 					isZero = Numerical.isZero;
 				if (isZero(radius.width) || isZero(radius.height))
 					return this.lineTo(to);
-				var rotation = Base.read(arguments),
-					clockwise = !!Base.read(arguments),
-					large = !!Base.read(arguments),
+				var rotation = Base.read(args),
+					clockwise = !!Base.read(args),
+					large = !!Base.read(args),
 					middle = from.add(to).divide(2),
 					pt = from.subtract(middle).rotate(-rotation),
 					x = pt.x,
@@ -9184,46 +9663,50 @@ new function() {
 				}
 				vector = from.subtract(center);
 				extent = vector.getDirectedAngle(to.subtract(center));
-				var centerSide = line.getSide(center);
+				var centerSide = line.getSide(center, true);
 				if (centerSide === 0) {
 					extent = throughSide * abs(extent);
 				} else if (throughSide === centerSide) {
 					extent += extent < 0 ? 360 : -360;
 				}
 			}
-			var epsilon = 1e-7,
-				ext = abs(extent),
-				count = ext >= 360 ? 4 : Math.ceil((ext - epsilon) / 90),
-				inc = extent / count,
-				half = inc * Math.PI / 360,
-				z = 4 / 3 * Math.sin(half) / (1 + Math.cos(half)),
-				segments = [];
-			for (var i = 0; i <= count; i++) {
-				var pt = to,
-					out = null;
-				if (i < count) {
-					out = vector.rotate(90).multiply(z);
-					if (matrix) {
-						pt = matrix._transformPoint(vector);
-						out = matrix._transformPoint(vector.add(out))
-								.subtract(pt);
+			if (extent) {
+				var epsilon = 1e-5,
+					ext = abs(extent),
+					count = ext >= 360
+						? 4
+						: Math.ceil((ext - epsilon) / 90),
+					inc = extent / count,
+					half = inc * Math.PI / 360,
+					z = 4 / 3 * Math.sin(half) / (1 + Math.cos(half)),
+					segments = [];
+				for (var i = 0; i <= count; i++) {
+					var pt = to,
+						out = null;
+					if (i < count) {
+						out = vector.rotate(90).multiply(z);
+						if (matrix) {
+							pt = matrix._transformPoint(vector);
+							out = matrix._transformPoint(vector.add(out))
+									.subtract(pt);
+						} else {
+							pt = center.add(vector);
+						}
+					}
+					if (!i) {
+						current.setHandleOut(out);
 					} else {
-						pt = center.add(vector);
+						var _in = vector.rotate(-90).multiply(z);
+						if (matrix) {
+							_in = matrix._transformPoint(vector.add(_in))
+									.subtract(pt);
+						}
+						segments.push(new Segment(pt, _in, out));
 					}
+					vector = vector.rotate(inc);
 				}
-				if (!i) {
-					current.setHandleOut(out);
-				} else {
-					var _in = vector.rotate(-90).multiply(z);
-					if (matrix) {
-						_in = matrix._transformPoint(vector.add(_in))
-								.subtract(pt);
-					}
-					segments.push(new Segment(pt, _in, out));
-				}
-				vector = vector.rotate(inc);
+				this._add(segments);
 			}
-			this._add(segments);
 		},
 
 		lineBy: function() {
@@ -9233,37 +9716,41 @@ new function() {
 		},
 
 		curveBy: function() {
-			var through = Point.read(arguments),
-				to = Point.read(arguments),
-				parameter = Base.read(arguments),
+			var args = arguments,
+				through = Point.read(args),
+				to = Point.read(args),
+				parameter = Base.read(args),
 				current = getCurrentSegment(this)._point;
 			this.curveTo(current.add(through), current.add(to), parameter);
 		},
 
 		cubicCurveBy: function() {
-			var handle1 = Point.read(arguments),
-				handle2 = Point.read(arguments),
-				to = Point.read(arguments),
+			var args = arguments,
+				handle1 = Point.read(args),
+				handle2 = Point.read(args),
+				to = Point.read(args),
 				current = getCurrentSegment(this)._point;
 			this.cubicCurveTo(current.add(handle1), current.add(handle2),
 					current.add(to));
 		},
 
 		quadraticCurveBy: function() {
-			var handle = Point.read(arguments),
-				to = Point.read(arguments),
+			var args = arguments,
+				handle = Point.read(args),
+				to = Point.read(args),
 				current = getCurrentSegment(this)._point;
 			this.quadraticCurveTo(current.add(handle), current.add(to));
 		},
 
 		arcBy: function() {
-			var current = getCurrentSegment(this)._point,
-				point = current.add(Point.read(arguments)),
-				clockwise = Base.pick(Base.peek(arguments), true);
+			var args = arguments,
+				current = getCurrentSegment(this)._point,
+				point = current.add(Point.read(args)),
+				clockwise = Base.pick(Base.peek(args), true);
 			if (typeof clockwise === 'boolean') {
 				this.arcTo(point, clockwise);
 			} else {
-				this.arcTo(point, current.add(Point.read(arguments)));
+				this.arcTo(point, current.add(Point.read(args)));
 			}
 		},
 
@@ -9361,13 +9848,16 @@ statics: {
 		}
 
 		var length = segments.length - (closed ? 0 : 1);
-		for (var i = 1; i < length; i++)
-			addJoin(segments[i], join);
-		if (closed) {
-			addJoin(segments[0], join);
-		} else if (length > 0) {
-			addCap(segments[0], cap);
-			addCap(segments[segments.length - 1], cap);
+		if (length > 0) {
+			for (var i = 1; i < length; i++) {
+				addJoin(segments[i], join);
+			}
+			if (closed) {
+				addJoin(segments[0], join);
+			} else {
+				addCap(segments[0], cap);
+				addCap(segments[segments.length - 1], cap);
+			}
 		}
 		return bounds;
 	},
@@ -9397,8 +9887,9 @@ statics: {
 			normal1 = curve1.getNormalAtTime(1).multiply(radius)
 				.transform(strokeMatrix),
 			normal2 = curve2.getNormalAtTime(0).multiply(radius)
-				.transform(strokeMatrix);
-		if (normal1.getDirectedAngle(normal2) < 0) {
+				.transform(strokeMatrix),
+				angle = normal1.getDirectedAngle(normal2);
+		if (angle < 0 || angle >= 180) {
 			normal1 = normal1.negate();
 			normal2 = normal2.negate();
 		}
@@ -9492,10 +9983,14 @@ Path.inject({ statics: new function() {
 
 	function createPath(segments, closed, args) {
 		var props = Base.getNamed(args),
-			path = new Path(props && props.insert == false && Item.NO_INSERT);
+			path = new Path(props && (
+				props.insert == true ? Item.INSERT
+				: props.insert == false ? Item.NO_INSERT
+				: null
+			));
 		path._add(segments);
 		path._closed = closed;
-		return path.set(props, { insert: true });
+		return path.set(props, Item.INSERT);
 	}
 
 	function createEllipse(center, radius, args) {
@@ -9513,21 +10008,24 @@ Path.inject({ statics: new function() {
 
 	return {
 		Line: function() {
+			var args = arguments;
 			return createPath([
-				new Segment(Point.readNamed(arguments, 'from')),
-				new Segment(Point.readNamed(arguments, 'to'))
-			], false, arguments);
+				new Segment(Point.readNamed(args, 'from')),
+				new Segment(Point.readNamed(args, 'to'))
+			], false, args);
 		},
 
 		Circle: function() {
-			var center = Point.readNamed(arguments, 'center'),
-				radius = Base.readNamed(arguments, 'radius');
-			return createEllipse(center, new Size(radius), arguments);
+			var args = arguments,
+				center = Point.readNamed(args, 'center'),
+				radius = Base.readNamed(args, 'radius');
+			return createEllipse(center, new Size(radius), args);
 		},
 
 		Rectangle: function() {
-			var rect = Rectangle.readNamed(arguments, 'rectangle'),
-				radius = Size.readNamed(arguments, 'radius', 0,
+			var args = arguments,
+				rect = Rectangle.readNamed(args, 'rectangle'),
+				radius = Size.readNamed(args, 'radius', 0,
 						{ readNull: true }),
 				bl = rect.getBottomLeft(true),
 				tl = rect.getTopLeft(true),
@@ -9558,23 +10056,25 @@ Path.inject({ statics: new function() {
 					new Segment(br.subtract(rx, 0), [hx, 0])
 				];
 			}
-			return createPath(segments, true, arguments);
+			return createPath(segments, true, args);
 		},
 
 		RoundRectangle: '#Rectangle',
 
 		Ellipse: function() {
-			var ellipse = Shape._readEllipse(arguments);
-			return createEllipse(ellipse.center, ellipse.radius, arguments);
+			var args = arguments,
+				ellipse = Shape._readEllipse(args);
+			return createEllipse(ellipse.center, ellipse.radius, args);
 		},
 
 		Oval: '#Ellipse',
 
 		Arc: function() {
-			var from = Point.readNamed(arguments, 'from'),
-				through = Point.readNamed(arguments, 'through'),
-				to = Point.readNamed(arguments, 'to'),
-				props = Base.getNamed(arguments),
+			var args = arguments,
+				from = Point.readNamed(args, 'from'),
+				through = Point.readNamed(args, 'through'),
+				to = Point.readNamed(args, 'to'),
+				props = Base.getNamed(args),
 				path = new Path(props && props.insert == false
 						&& Item.NO_INSERT);
 			path.moveTo(from);
@@ -9583,9 +10083,10 @@ Path.inject({ statics: new function() {
 		},
 
 		RegularPolygon: function() {
-			var center = Point.readNamed(arguments, 'center'),
-				sides = Base.readNamed(arguments, 'sides'),
-				radius = Base.readNamed(arguments, 'radius'),
+			var args = arguments,
+				center = Point.readNamed(args, 'center'),
+				sides = Base.readNamed(args, 'sides'),
+				radius = Base.readNamed(args, 'radius'),
 				step = 360 / sides,
 				three = sides % 3 === 0,
 				vector = new Point(0, three ? -radius : radius),
@@ -9594,21 +10095,22 @@ Path.inject({ statics: new function() {
 			for (var i = 0; i < sides; i++)
 				segments[i] = new Segment(center.add(
 					vector.rotate((i + offset) * step)));
-			return createPath(segments, true, arguments);
+			return createPath(segments, true, args);
 		},
 
 		Star: function() {
-			var center = Point.readNamed(arguments, 'center'),
-				points = Base.readNamed(arguments, 'points') * 2,
-				radius1 = Base.readNamed(arguments, 'radius1'),
-				radius2 = Base.readNamed(arguments, 'radius2'),
+			var args = arguments,
+				center = Point.readNamed(args, 'center'),
+				points = Base.readNamed(args, 'points') * 2,
+				radius1 = Base.readNamed(args, 'radius1'),
+				radius2 = Base.readNamed(args, 'radius2'),
 				step = 360 / points,
 				vector = new Point(0, -1),
 				segments = new Array(points);
 			for (var i = 0; i < points; i++)
 				segments[i] = new Segment(center.add(vector.rotate(step * i)
 						.multiply(i % 2 ? radius2 : radius1)));
-			return createPath(segments, true, arguments);
+			return createPath(segments, true, args);
 		}
 	};
 }});
@@ -9697,8 +10199,9 @@ var CompoundPath = PathItem.extend({
 	getCurves: function() {
 		var children = this._children,
 			curves = [];
-		for (var i = 0, l = children.length; i < l; i++)
-			curves.push.apply(curves, children[i].getCurves());
+		for (var i = 0, l = children.length; i < l; i++) {
+			Base.push(curves, children[i].getCurves());
+		}
 		return curves;
 	},
 
@@ -9841,13 +10344,30 @@ PathItem.inject(new function() {
 			exclude:   { '1': true, '-1': true }
 		};
 
+	function getPaths(path) {
+		return path._children || [path];
+	}
+
 	function preparePath(path, resolve) {
-		var res = path.clone(false).reduce({ simplify: true })
-				.transform(null, true, true);
-		return resolve
-				? res.resolveCrossings().reorient(
-					res.getFillRule() === 'nonzero', true)
-				: res;
+		var res = path
+			.clone(false)
+			.reduce({ simplify: true })
+			.transform(null, true, true);
+		if (resolve) {
+			var paths = getPaths(res);
+			for (var i = 0, l = paths.length; i < l; i++) {
+				var path = paths[i];
+				if (!path._closed && !path.isEmpty()) {
+					path.closePath(1e-12);
+					path.getFirstSegment().setHandleIn(0, 0);
+					path.getLastSegment().setHandleOut(0, 0);
+				}
+			}
+			res = res
+				.resolveCrossings()
+				.reorient(res.getFillRule() === 'nonzero', true);
+		}
+		return res;
 	}
 
 	function createResult(paths, simplify, path1, path2, options) {
@@ -9862,6 +10382,10 @@ PathItem.inject(new function() {
 		return result;
 	}
 
+	function filterIntersection(inter) {
+		return inter.hasOverlap() || inter.isCrossing();
+	}
+
 	function traceBoolean(path1, path2, operation, options) {
 		if (options && (options.trace == false || options.stroke) &&
 				/^(subtract|intersect)$/.test(operation))
@@ -9873,36 +10397,63 @@ PathItem.inject(new function() {
 		if (_path2 && (operator.subtract || operator.exclude)
 				^ (_path2.isClockwise() ^ _path1.isClockwise()))
 			_path2.reverse();
-		var crossings = divideLocations(
-				CurveLocation.expand(_path1.getCrossings(_path2))),
-			paths1 = _path1._children || [_path1],
-			paths2 = _path2 && (_path2._children || [_path2]),
+		var crossings = divideLocations(CurveLocation.expand(
+				_path1.getIntersections(_path2, filterIntersection))),
+			paths1 = getPaths(_path1),
+			paths2 = _path2 && getPaths(_path2),
 			segments = [],
 			curves = [],
 			paths;
 
-		function collect(paths) {
+		function collectPaths(paths) {
 			for (var i = 0, l = paths.length; i < l; i++) {
 				var path = paths[i];
-				segments.push.apply(segments, path._segments);
-				curves.push.apply(curves, path.getCurves());
+				Base.push(segments, path._segments);
+				Base.push(curves, path.getCurves());
 				path._overlapsOnly = true;
 			}
 		}
 
+		function getCurves(indices) {
+			var list = [];
+			for (var i = 0, l = indices && indices.length; i < l; i++) {
+				list.push(curves[indices[i]]);
+			}
+			return list;
+		}
+
 		if (crossings.length) {
-			collect(paths1);
+			collectPaths(paths1);
 			if (paths2)
-				collect(paths2);
+				collectPaths(paths2);
+
+			var curvesValues = new Array(curves.length);
+			for (var i = 0, l = curves.length; i < l; i++) {
+				curvesValues[i] = curves[i].getValues();
+			}
+			var curveCollisions = CollisionDetection.findCurveBoundsCollisions(
+					curvesValues, curvesValues, 0, true);
+			var curveCollisionsMap = {};
+			for (var i = 0; i < curves.length; i++) {
+				var curve = curves[i],
+					id = curve._path._id,
+					map = curveCollisionsMap[id] = curveCollisionsMap[id] || {};
+				map[curve.getIndex()] = {
+					hor: getCurves(curveCollisions[i].hor),
+					ver: getCurves(curveCollisions[i].ver)
+				};
+			}
+
 			for (var i = 0, l = crossings.length; i < l; i++) {
-				propagateWinding(crossings[i]._segment, _path1, _path2, curves,
-						operator);
+				propagateWinding(crossings[i]._segment, _path1, _path2,
+						curveCollisionsMap, operator);
 			}
 			for (var i = 0, l = segments.length; i < l; i++) {
 				var segment = segments[i],
 					inter = segment._intersection;
 				if (!segment._winding) {
-					propagateWinding(segment, _path1, _path2, curves, operator);
+					propagateWinding(segment, _path1, _path2,
+							curveCollisionsMap, operator);
 				}
 				if (!(inter && inter._overlap))
 					segment._path._overlapsOnly = false;
@@ -9915,14 +10466,13 @@ PathItem.inject(new function() {
 						return !!operator[w];
 					});
 		}
-
 		return createResult(paths, true, path1, path2, options);
 	}
 
 	function splitBoolean(path1, path2, operation) {
 		var _path1 = preparePath(path1),
 			_path2 = preparePath(path2),
-			crossings = _path1.getCrossings(_path2),
+			crossings = _path1.getIntersections(_path2, filterIntersection),
 			subtract = operation === 'subtract',
 			divide = operation === 'divide',
 			added = {},
@@ -9985,22 +10535,30 @@ PathItem.inject(new function() {
 					return abs(b.getArea()) - abs(a.getArea());
 				}),
 				first = sorted[0];
+			var collisions = CollisionDetection.findItemBoundsCollisions(sorted,
+					null, Numerical.GEOMETRIC_EPSILON);
 			if (clockwise == null)
 				clockwise = first.isClockwise();
 			for (var i = 0; i < length; i++) {
 				var path1 = sorted[i],
 					entry1 = lookup[path1._id],
-					point = path1.getInteriorPoint(),
-					containerWinding = 0;
-				for (var j = i - 1; j >= 0; j--) {
-					var path2 = sorted[j];
-					if (path2.contains(point)) {
-						var entry2 = lookup[path2._id];
-						containerWinding = entry2.winding;
-						entry1.winding += containerWinding;
-						entry1.container = entry2.exclude ? entry2.container
-								: path2;
-						break;
+					containerWinding = 0,
+					indices = collisions[i];
+				if (indices) {
+					var point = null;
+					for (var j = indices.length - 1; j >= 0; j--) {
+						if (indices[j] < i) {
+							point = point || path1.getInteriorPoint();
+							var path2 = sorted[indices[j]];
+							if (path2.contains(point)) {
+								var entry2 = lookup[path2._id];
+								containerWinding = entry2.winding;
+								entry1.winding += containerWinding;
+								entry1.container = entry2.exclude
+									? entry2.container : path2;
+								break;
+							}
+						}
 					}
 				}
 				if (isInside(entry1.winding) === isInside(containerWinding)) {
@@ -10008,8 +10566,8 @@ PathItem.inject(new function() {
 					paths[entry1.index] = null;
 				} else {
 					var container = entry1.container;
-					path1.setClockwise(container ? !container.isClockwise()
-							: clockwise);
+					path1.setClockwise(
+							container ? !container.isClockwise() : clockwise);
 				}
 			}
 		}
@@ -10097,6 +10655,9 @@ PathItem.inject(new function() {
 	}
 
 	function getWinding(point, curves, dir, closed, dontFlip) {
+		var curvesList = Array.isArray(curves)
+			? curves
+			: curves[dir ? 'hor' : 'ver'];
 		var ia = dir ? 1 : 0,
 			io = ia ^ 1,
 			pv = [point.x, point.y],
@@ -10172,7 +10733,7 @@ PathItem.inject(new function() {
 						onPath = true;
 					}
 				}
-				quality = 0;
+				quality /= 4;
 			}
 			vPrev = v;
 			return !dontFlip && a > paL && a < paR
@@ -10201,12 +10762,12 @@ PathItem.inject(new function() {
 			}
 		}
 
-		for (var i = 0, l = curves.length; i < l; i++) {
-			var curve = curves[i],
+		for (var i = 0, l = curvesList.length; i < l; i++) {
+			var curve = curvesList[i],
 				path = curve._path,
 				v = curve.getValues(),
 				res;
-			if (!i || curves[i - 1]._path !== path) {
+			if (!i || curvesList[i - 1]._path !== path) {
 				vPrev = null;
 				if (!path._closed) {
 					vClose = Curve.getValues(
@@ -10235,7 +10796,7 @@ PathItem.inject(new function() {
 			if (res = handleCurve(v))
 				return res;
 
-			if (i + 1 === l || curves[i + 1]._path !== path) {
+			if (i + 1 === l || curvesList[i + 1]._path !== path) {
 				if (vClose && (res = handleCurve(vClose)))
 					return res;
 				if (onPath && !pathWindingL && !pathWindingR) {
@@ -10263,21 +10824,24 @@ PathItem.inject(new function() {
 		};
 	}
 
-	function propagateWinding(segment, path1, path2, curves, operator) {
+	function propagateWinding(segment, path1, path2, curveCollisionsMap,
+			operator) {
 		var chain = [],
 			start = segment,
 			totalLength = 0,
 			winding;
 		do {
-			var curve = segment.getCurve(),
-				length = curve.getLength();
-			chain.push({ segment: segment, curve: curve, length: length });
-			totalLength += length;
+			var curve = segment.getCurve();
+			if (curve) {
+				var length = curve.getLength();
+				chain.push({ segment: segment, curve: curve, length: length });
+				totalLength += length;
+			}
 			segment = segment.getNext();
 		} while (segment && !segment._intersection && segment !== start);
 		var offsets = [0.5, 0.25, 0.75],
 			winding = { winding: 0, quality: -1 },
-			tMin = 1e-8,
+			tMin = 1e-3,
 			tMax = 1 - tMin;
 		for (var i = 0; i < offsets.length && winding.quality < 0.5; i++) {
 			var length = totalLength * offsets[i];
@@ -10292,13 +10856,22 @@ PathItem.inject(new function() {
 						t = Numerical.clamp(curve.getTimeAt(length), tMin, tMax),
 						pt = curve.getPointAtTime(t),
 						dir = abs(curve.getTangentAtTime(t).y) < Math.SQRT1_2;
-					var wind = !(operator.subtract && path2 && (
-							operand === path1 &&
-								path2._getWinding(pt, dir, true).winding ||
-							operand === path2 &&
-								!path1._getWinding(pt, dir, true).winding))
-							? getWinding(pt, curves, dir, true)
-							: { winding: 0, quality: 1 };
+					var wind = null;
+					if (operator.subtract && path2) {
+						var otherPath = operand === path1 ? path2 : path1,
+							pathWinding = otherPath._getWinding(pt, dir, true);
+						if (operand === path1 && pathWinding.winding ||
+							operand === path2 && !pathWinding.winding) {
+							if (pathWinding.quality < 1) {
+								continue;
+							} else {
+								wind = { winding: 0, quality: 1 };
+							}
+						}
+					}
+					wind =  wind || getWinding(
+							pt, curveCollisionsMap[path._id][curve.getIndex()],
+							dir, true);
 					if (wind.quality > winding.quality)
 						winding = wind;
 					break;
@@ -10370,8 +10943,8 @@ PathItem.inject(new function() {
 
 			if (inter) {
 				collect(inter);
-				while (inter && inter._prev)
-					inter = inter._prev;
+				while (inter && inter._previous)
+					inter = inter._previous;
 				collect(inter, start);
 			}
 			return crossings;
@@ -10572,7 +11145,7 @@ PathItem.inject(new function() {
 				if (clearCurves)
 					clearCurveHandles(clearCurves);
 				paths = tracePaths(Base.each(paths, function(path) {
-					this.push.apply(this, path._segments);
+					Base.push(this, path._segments);
 				}, []));
 			}
 			var length = paths.length,
@@ -10701,7 +11274,7 @@ var PathFlattener = Base.extend({
 			segment1 = segment2;
 		}
 		if (path._closed)
-			addCurve(segment2, segments[0]);
+			addCurve(segment2 || segment1, segments[0]);
 		this.curves = curves;
 		this.parts = parts;
 		this.length = length;
@@ -10927,7 +11500,7 @@ var PathFitter = Base.extend({
 			pt2 = this.evaluate(1, curve2, u),
 			diff = pt.subtract(point),
 			df = pt1.dot(pt1) + diff.dot(pt2);
-		return Numerical.isZero(df) ? u : u - diff.dot(pt1) / df;
+		return Numerical.isMachineZero(df) ? u : u - diff.dot(pt1) / df;
 	},
 
 	evaluate: function(degree, curve, t) {
@@ -11003,7 +11576,7 @@ var TextItem = Item.extend({
 	setContent: function(content) {
 		this._content = '' + content;
 		this._lines = this._content.split(/\r\n|\n|\r/mg);
-		this._changed(265);
+		this._changed(521);
 	},
 
 	isEmpty: function() {
@@ -11086,47 +11659,76 @@ var Color = Base.extend(new function() {
 	};
 
 	var componentParsers = {},
-		colorCache = {},
+		namedColors = {
+			transparent: [0, 0, 0, 0]
+		},
 		colorCtx;
 
 	function fromCSS(string) {
-		var match = string.match(/^#(\w{1,2})(\w{1,2})(\w{1,2})$/),
+		var match = string.match(
+				/^#([\da-f]{2})([\da-f]{2})([\da-f]{2})([\da-f]{2})?$/i
+			) || string.match(
+				/^#([\da-f])([\da-f])([\da-f])([\da-f])?$/i
+			),
+			type = 'rgb',
 			components;
 		if (match) {
-			components = [0, 0, 0];
-			for (var i = 0; i < 3; i++) {
+			var amount = match[4] ? 4 : 3;
+			components = new Array(amount);
+			for (var i = 0; i < amount; i++) {
 				var value = match[i + 1];
 				components[i] = parseInt(value.length == 1
 						? value + value : value, 16) / 255;
 			}
-		} else if (match = string.match(/^rgba?\((.*)\)$/)) {
-			components = match[1].split(',');
-			for (var i = 0, l = components.length; i < l; i++) {
-				var value = +components[i];
-				components[i] = i < 3 ? value / 255 : value;
-			}
-		} else if (window) {
-			var cached = colorCache[string];
-			if (!cached) {
-				if (!colorCtx) {
-					colorCtx = CanvasProvider.getContext(1, 1);
-					colorCtx.globalCompositeOperation = 'copy';
+		} else if (match = string.match(/^(rgb|hsl)a?\((.*)\)$/)) {
+			type = match[1];
+			components = match[2].trim().split(/[,\s]+/g);
+			var isHSL = type === 'hsl';
+			for (var i = 0, l = Math.min(components.length, 4); i < l; i++) {
+				var component = components[i];
+				var value = parseFloat(component);
+				if (isHSL) {
+					if (i === 0) {
+						var unit = component.match(/([a-z]*)$/)[1];
+						value *= ({
+							turn: 360,
+							rad: 180 / Math.PI,
+							grad: 0.9
+						}[unit] || 1);
+					} else if (i < 3) {
+						value /= 100;
+					}
+				} else if (i < 3) {
+					value /= /%$/.test(component) ? 100 : 255;
 				}
-				colorCtx.fillStyle = 'rgba(0,0,0,0)';
-				colorCtx.fillStyle = string;
-				colorCtx.fillRect(0, 0, 1, 1);
-				var data = colorCtx.getImageData(0, 0, 1, 1).data;
-				cached = colorCache[string] = [
-					data[0] / 255,
-					data[1] / 255,
-					data[2] / 255
-				];
+				components[i] = value;
 			}
-			components = cached.slice();
 		} else {
-			components = [0, 0, 0];
+			var color = namedColors[string];
+			if (!color) {
+				if (window) {
+					if (!colorCtx) {
+						colorCtx = CanvasProvider.getContext(1, 1, {
+							willReadFrequently: true
+						});
+						colorCtx.globalCompositeOperation = 'copy';
+					}
+					colorCtx.fillStyle = 'rgba(0,0,0,0)';
+					colorCtx.fillStyle = string;
+					colorCtx.fillRect(0, 0, 1, 1);
+					var data = colorCtx.getImageData(0, 0, 1, 1).data;
+					color = namedColors[string] = [
+						data[0] / 255,
+						data[1] / 255,
+						data[2] / 255
+					];
+				} else {
+					color = [0, 0, 0];
+				}
+			}
+			components = color.slice();
 		}
-		return components;
+		return [type, components];
 	}
 
 	var hsbIndices = [
@@ -11234,30 +11836,32 @@ var Color = Base.extend(new function() {
 		Base.each(properties, function(name, index) {
 			var part = Base.capitalize(name),
 				hasOverlap = /^(hue|saturation)$/.test(name),
-				parser = componentParsers[type][index] = name === 'gradient'
-					? function(value) {
-						var current = this._components[0];
-						value = Gradient.read(Array.isArray(value) ? value
-								: arguments, 0, { readNull: true });
-						if (current !== value) {
-							if (current)
-								current._removeOwner(this);
-							if (value)
-								value._addOwner(this);
+				parser = componentParsers[type][index] = type === 'gradient'
+					? name === 'gradient'
+						? function(value) {
+							var current = this._components[0];
+							value = Gradient.read(
+								Array.isArray(value)
+									? value
+									: arguments, 0, { readNull: true }
+							);
+							if (current !== value) {
+								if (current)
+									current._removeOwner(this);
+								if (value)
+									value._addOwner(this);
+							}
+							return value;
 						}
-						return value;
-					}
-					: type === 'gradient'
-						? function() {
+						: function() {
 							return Point.read(arguments, 0, {
 									readNull: name === 'highlight',
 									clone: true
 							});
 						}
-						: function(value) {
-							return value == null || isNaN(value) ? 0 : value;
-						};
-
+					: function(value) {
+						return value == null || isNaN(value) ? 0 : +value;
+					};
 			this['get' + part] = function() {
 				return this._type === type
 					|| hasOverlap && /^hs[bl]$/.test(this._type)
@@ -11327,8 +11931,9 @@ var Color = Base.extend(new function() {
 					if (values.length > length)
 						values = Base.slice(values, 0, length);
 				} else if (argType === 'string') {
-					type = 'rgb';
-					components = fromCSS(arg);
+					var converted = fromCSS(arg);
+					type = converted[0];
+					components = converted[1];
 					if (components.length === 4) {
 						alpha = components[3];
 						components.length--;
@@ -11412,8 +12017,13 @@ var Color = Base.extend(new function() {
 
 		_changed: function() {
 			this._canvasStyle = null;
-			if (this._owner)
-				this._owner._changed(65);
+			if (this._owner) {
+				if (this._setter) {
+					this._owner[this._setter](this);
+				} else {
+					this._owner._changed(129);
+				}
+			}
 		},
 
 		_convert: function(type) {
@@ -11569,6 +12179,19 @@ var Color = Base.extend(new function() {
 			random: function() {
 				var random = Math.random;
 				return new Color(random(), random(), random());
+			},
+
+			_setOwner: function(color, owner, setter) {
+				if (color) {
+					if (color._owner && owner && color._owner !== owner) {
+						color = color.clone();
+					}
+					if (!color._owner ^ !owner) {
+						color._owner = owner || null;
+						color._setter = setter || null;
+					}
+				}
+				return color;
 			}
 		}
 	});
@@ -11744,7 +12367,7 @@ var GradientStop = Base.extend({
 
 	_changed: function() {
 		if (this._owner)
-			this._owner._changed(65);
+			this._owner._changed(129);
 	},
 
 	getOffset: function() {
@@ -11764,10 +12387,9 @@ var GradientStop = Base.extend({
 	},
 
 	setColor: function() {
-		var color = Color.read(arguments, 0, { clone: true });
-		if (color)
-			color._owner = this;
-		this._color = color;
+		Color._setOwner(this._color, null);
+		this._color = Color._setOwner(Color.read(arguments, 0), this,
+				'setColor');
 		this._changed();
 	},
 
@@ -11807,11 +12429,11 @@ var Style = Base.extend(new function() {
 		fillColor: new Color()
 	}),
 	flags = {
-		strokeWidth: 97,
-		strokeCap: 97,
-		strokeJoin: 97,
-		strokeScaling: 105,
-		miterLimit: 97,
+		strokeWidth: 193,
+		strokeCap: 193,
+		strokeJoin: 193,
+		strokeScaling: 201,
+		miterLimit: 193,
 		fontFamily: 9,
 		fontWeight: 9,
 		fontSize: 9,
@@ -11849,26 +12471,30 @@ var Style = Base.extend(new function() {
 
 		fields[set] = function(value) {
 			var owner = this._owner,
-				children = owner && owner._children;
-			if (children && children.length > 0
-					&& !(owner instanceof CompoundPath)) {
+				children = owner && owner._children,
+				applyToChildren = children && children.length > 0
+					&& !(owner instanceof CompoundPath);
+			if (applyToChildren) {
 				for (var i = 0, l = children.length; i < l; i++)
 					children[i]._style[set](value);
-			} else if (key in this._defaults) {
+			}
+			if ((key === 'selectedColor' || !applyToChildren)
+					&& key in this._defaults) {
 				var old = this._values[key];
 				if (old !== value) {
 					if (isColor) {
-						if (old && old._owner !== undefined)
-							old._owner = undefined;
+						if (old) {
+							Color._setOwner(old, null);
+							old._canvasStyle = null;
+						}
 						if (value && value.constructor === Color) {
-							if (value._owner)
-								value = value.clone();
-							value._owner = owner;
+							value = Color._setOwner(value, owner,
+									applyToChildren && set);
 						}
 					}
 					this._values[key] = value;
 					if (owner)
-						owner._changed(flag || 65);
+						owner._changed(flag || 129);
 				}
 			}
 		};
@@ -11876,24 +12502,10 @@ var Style = Base.extend(new function() {
 		fields[get] = function(_dontMerge) {
 			var owner = this._owner,
 				children = owner && owner._children,
+				applyToChildren = children && children.length > 0
+					&& !(owner instanceof CompoundPath),
 				value;
-			if (key in this._defaults && (!children || !children.length
-					|| _dontMerge || owner instanceof CompoundPath)) {
-				var value = this._values[key];
-				if (value === undefined) {
-					value = this._defaults[key];
-					if (value && value.clone)
-						value = value.clone();
-				} else {
-					var ctor = isColor ? Color : isPoint ? Point : null;
-					if (ctor && !(value && value.constructor === ctor)) {
-						this._values[key] = value = ctor.read([value], 0,
-								{ readNull: true, clone: true });
-						if (value && isColor)
-							value._owner = owner;
-					}
-				}
-			} else if (children) {
+			if (applyToChildren && !_dontMerge) {
 				for (var i = 0, l = children.length; i < l; i++) {
 					var childValue = children[i]._style[get]();
 					if (!i) {
@@ -11902,6 +12514,23 @@ var Style = Base.extend(new function() {
 						return undefined;
 					}
 				}
+			} else if (key in this._defaults) {
+				var value = this._values[key];
+				if (value === undefined) {
+					value = this._defaults[key];
+					if (value && value.clone) {
+						value = value.clone();
+					}
+				} else {
+					var ctor = isColor ? Color : isPoint ? Point : null;
+					if (ctor && !(value && value.constructor === ctor)) {
+						this._values[key] = value = ctor.read([value], 0,
+								{ readNull: true, clone: true });
+					}
+				}
+			}
+			if (value && isColor) {
+				value = Color._setOwner(value, owner, applyToChildren && set);
 			}
 			return value;
 		};
@@ -11961,6 +12590,16 @@ var Style = Base.extend(new function() {
 				&& compare(this, style)
 				&& compare(style, this, true)
 				|| false;
+	},
+
+	_dispose: function() {
+		var color;
+		color = this.getFillColor();
+		if (color) color._canvasStyle = null;
+		color = this.getStrokeColor();
+		if (color) color._canvasStyle = null;
+		color = this.getShadowColor();
+		if (color) color._canvasStyle = null;
 	},
 
 	hasFill: function() {
@@ -12101,8 +12740,14 @@ var DomEvent = {
 			for (var type in events) {
 				var func = events[type],
 					parts = type.split(/[\s,]+/g);
-				for (var i = 0, l = parts.length; i < l; i++)
-					el.addEventListener(parts[i], func, false);
+				for (var i = 0, l = parts.length; i < l; i++) {
+					var name = parts[i];
+					var options = (
+						el === document
+						&& (name === 'touchstart' || name === 'touchmove')
+					) ? { passive: false } : false;
+					el.addEventListener(name, func, options);
+				}
 			}
 		}
 	},
@@ -12193,7 +12838,7 @@ var View = Base.extend(Emitter, {
 		if (window && element) {
 			this._id = element.getAttribute('id');
 			if (this._id == null)
-				element.setAttribute('id', this._id = 'view-' + View._id++);
+				element.setAttribute('id', this._id = 'paper-view-' + View._id++);
 			DomEvent.add(element, this._viewEvents);
 			var none = 'none';
 			DomElement.setPrefixed(element.style, {
@@ -12379,7 +13024,7 @@ var View = Base.extend(Emitter, {
 	},
 
 	_changed: function() {
-		this._project._changed(2049);
+		this._project._changed(4097);
 		this._bounds = this._decomposed = undefined;
 	},
 
@@ -12465,8 +13110,9 @@ var View = Base.extend(Emitter, {
 }, Base.each(['rotate', 'scale', 'shear', 'skew'], function(key) {
 	var rotate = key === 'rotate';
 	this[key] = function() {
-		var value = (rotate ? Base : Point).read(arguments),
-			center = Point.read(arguments, 0, { readNull: true });
+		var args = arguments,
+			value = (rotate ? Base : Point).read(args),
+			center = Point.read(args, 0, { readNull: true });
 		return this.transform(new Matrix()[key](value,
 				center || this.getCenter(true)));
 	};
@@ -12490,9 +13136,8 @@ var View = Base.extend(Emitter, {
 	},
 
 	getZoom: function() {
-		var decomposed = this._decompose(),
-			scaling = decomposed && decomposed.scaling;
-		return scaling ? (scaling.x + scaling.y) / 2 : 0;
+		var scaling = this._decompose().scaling;
+		return (scaling.x + scaling.y) / 2;
 	},
 
 	setZoom: function(zoom) {
@@ -12501,8 +13146,7 @@ var View = Base.extend(Emitter, {
 	},
 
 	getRotation: function() {
-		var decomposed = this._decompose();
-		return decomposed && decomposed.rotation;
+		return this._decompose().rotation;
 	},
 
 	setRotation: function(rotation) {
@@ -12513,11 +13157,8 @@ var View = Base.extend(Emitter, {
 	},
 
 	getScaling: function() {
-		var decomposed = this._decompose(),
-			scaling = decomposed && decomposed.scaling;
-		return scaling
-				? new LinkedPoint(scaling.x, scaling.y, this, 'setScaling')
-				: undefined;
+		var scaling = this._decompose().scaling;
+		return new LinkedPoint(scaling.x, scaling.y, this, 'setScaling');
 	},
 
 	setScaling: function() {
@@ -12534,7 +13175,7 @@ var View = Base.extend(Emitter, {
 
 	setMatrix: function() {
 		var matrix = this._matrix;
-		matrix.initialize.apply(matrix, arguments);
+		matrix.set.apply(matrix, arguments);
 	},
 
 	transform: function(matrix) {
@@ -12747,8 +13388,8 @@ new function() {
 					point, prevPoint)
 			|| hitItem && hitItem !== dragItem
 				&& !hitItem.isDescendant(dragItem)
-				&& emitMouseEvent(hitItem, null, type, event, point, prevPoint,
-					dragItem)
+				&& emitMouseEvent(hitItem, null, type === 'mousedrag' ?
+					'mousemove' : type, event, point, prevPoint, dragItem)
 			|| emitMouseEvent(view, dragItem || hitItem || view, type, event,
 					point, prevPoint));
 	}
@@ -12858,8 +13499,12 @@ new function() {
 					|| called;
 			}
 
-			if (called && !mouse.move || mouse.down && responds('mouseup'))
+			if (
+				event.cancelable !== false
+				&& (called && !mouse.move || mouse.down && responds('mouseup'))
+			) {
 				event.preventDefault();
+			}
 		},
 
 		_handleKeyEvent: function(type, event, key, character) {
@@ -12894,7 +13539,14 @@ new function() {
 		},
 
 		statics: {
-			updateFocus: updateFocus
+			updateFocus: updateFocus,
+
+			_resetState: function() {
+				dragging = mouseDown = called = wasInView = false;
+				prevFocus = tempFocus = overView = downPoint = lastPoint =
+					downItem = overItem = dragItem = clickItem = clickTime =
+					dblClick = null;
+			}
 		}
 	};
 });
@@ -12944,6 +13596,10 @@ var CanvasView = View.extend({
 			ctx.save();
 			ctx.scale(pixelRatio, pixelRatio);
 		}
+	},
+
+	getContext: function() {
+		return this._context;
 	},
 
 	getPixelSize: function getPixelSize(size) {
@@ -13362,7 +14018,7 @@ var Tool = PaperScopeItem.extend({
 			var pt = point,
 				toolPoint = move ? tool._point : (tool._downPoint || pt);
 			if (move) {
-				if (tool._moveCount && pt.equals(toolPoint)) {
+				if (tool._moveCount >= 0 && pt.equals(toolPoint)) {
 					return false;
 				}
 				if (toolPoint && (minDistance != null || maxDistance != null)) {
@@ -13409,6 +14065,245 @@ var Tool = PaperScopeItem.extend({
 
 });
 
+var Tween = Base.extend(Emitter, {
+	_class: 'Tween',
+
+	statics: {
+		easings: new Base({
+			linear: function(t) {
+				return t;
+			},
+
+			easeInQuad: function(t) {
+				return t * t;
+			},
+
+			easeOutQuad: function(t) {
+				return t * (2 - t);
+			},
+
+			easeInOutQuad: function(t) {
+				return t < 0.5
+					? 2 * t * t
+					: -1 + 2 * (2 - t) * t;
+			},
+
+			easeInCubic: function(t) {
+				return t * t * t;
+			},
+
+			easeOutCubic: function(t) {
+				return --t * t * t + 1;
+			},
+
+			easeInOutCubic: function(t) {
+				return t < 0.5
+					? 4 * t * t * t
+					: (t - 1) * (2 * t - 2) * (2 * t - 2) + 1;
+			},
+
+			easeInQuart: function(t) {
+				return t * t * t * t;
+			},
+
+			easeOutQuart: function(t) {
+				return 1 - (--t) * t * t * t;
+			},
+
+			easeInOutQuart: function(t) {
+				return t < 0.5
+					? 8 * t * t * t * t
+					: 1 - 8 * (--t) * t * t * t;
+			},
+
+			easeInQuint: function(t) {
+				return t * t * t * t * t;
+			},
+
+			easeOutQuint: function(t) {
+				return 1 + --t * t * t * t * t;
+			},
+
+			easeInOutQuint: function(t) {
+				return t < 0.5
+					? 16 * t * t * t * t * t
+					: 1 + 16 * (--t) * t * t * t * t;
+			}
+		})
+	},
+
+	initialize: function Tween(object, from, to, duration, easing, start) {
+		this.object = object;
+		var type = typeof easing;
+		var isFunction = type === 'function';
+		this.type = isFunction
+			? type
+			: type === 'string'
+				? easing
+				: 'linear';
+		this.easing = isFunction ? easing : Tween.easings[this.type];
+		this.duration = duration;
+		this.running = false;
+
+		this._then = null;
+		this._startTime = null;
+		var state = from || to;
+		this._keys = state ? Object.keys(state) : [];
+		this._parsedKeys = this._parseKeys(this._keys);
+		this._from = state && this._getState(from);
+		this._to = state && this._getState(to);
+		if (start !== false) {
+			this.start();
+		}
+	},
+
+	then: function(then) {
+		this._then = then;
+		return this;
+	},
+
+	start: function() {
+		this._startTime = null;
+		this.running = true;
+		return this;
+	},
+
+	stop: function() {
+		this.running = false;
+		return this;
+	},
+
+	update: function(progress) {
+		if (this.running) {
+			if (progress >= 1) {
+				progress = 1;
+				this.running = false;
+			}
+
+			var factor = this.easing(progress),
+				keys = this._keys,
+				getValue = function(value) {
+					return typeof value === 'function'
+						? value(factor, progress)
+						: value;
+				};
+			for (var i = 0, l = keys && keys.length; i < l; i++) {
+				var key = keys[i],
+					from = getValue(this._from[key]),
+					to = getValue(this._to[key]),
+					value = (from && to && from.__add && to.__add)
+						? to.__subtract(from).__multiply(factor).__add(from)
+						: ((to - from) * factor) + from;
+				this._setProperty(this._parsedKeys[key], value);
+			}
+
+			if (this.responds('update')) {
+				this.emit('update', new Base({
+					progress: progress,
+					factor: factor
+				}));
+			}
+			if (!this.running && this._then) {
+				this._then(this.object);
+			}
+		}
+		return this;
+	},
+
+	_events: {
+		onUpdate: {}
+	},
+
+	_handleFrame: function(time) {
+		var startTime = this._startTime,
+			progress = startTime
+				? (time - startTime) / this.duration
+				: 0;
+		if (!startTime) {
+			this._startTime = time;
+		}
+		this.update(progress);
+	},
+
+	_getState: function(state) {
+		var keys = this._keys,
+			result = {};
+		for (var i = 0, l = keys.length; i < l; i++) {
+			var key = keys[i],
+				path = this._parsedKeys[key],
+				current = this._getProperty(path),
+				value;
+			if (state) {
+				var resolved = this._resolveValue(current, state[key]);
+				this._setProperty(path, resolved);
+				value = this._getProperty(path);
+				value = value && value.clone ? value.clone() : value;
+				this._setProperty(path, current);
+			} else {
+				value = current && current.clone ? current.clone() : current;
+			}
+			result[key] = value;
+		}
+		return result;
+	},
+
+	_resolveValue: function(current, value) {
+		if (value) {
+			if (Array.isArray(value) && value.length === 2) {
+				var operator = value[0];
+				return (
+					operator &&
+					operator.match &&
+					operator.match(/^[+\-\*\/]=/)
+				)
+					? this._calculate(current, operator[0], value[1])
+					: value;
+			} else if (typeof value === 'string') {
+				var match = value.match(/^[+\-*/]=(.*)/);
+				if (match) {
+					var parsed = JSON.parse(match[1].replace(
+						/(['"])?([a-zA-Z0-9_]+)(['"])?:/g,
+						'"$2": '
+					));
+					return this._calculate(current, value[0], parsed);
+				}
+			}
+		}
+		return value;
+	},
+
+	_calculate: function(left, operator, right) {
+		return paper.PaperScript.calculateBinary(left, operator, right);
+	},
+
+	_parseKeys: function(keys) {
+		var parsed = {};
+		for (var i = 0, l = keys.length; i < l; i++) {
+			var key = keys[i],
+				path = key
+					.replace(/\.([^.]*)/g, '/$1')
+					.replace(/\[['"]?([^'"\]]*)['"]?\]/g, '/$1');
+			parsed[key] = path.split('/');
+		}
+		return parsed;
+	},
+
+	_getProperty: function(path, offset) {
+		var obj = this.object;
+		for (var i = 0, l = path.length - (offset || 0); i < l && obj; i++) {
+			obj = obj[path[i]];
+		}
+		return obj;
+	},
+
+	_setProperty: function(path, value) {
+		var dest = this._getProperty(path, 1);
+		if (dest) {
+			dest[path[path.length - 1]] = value;
+		}
+	}
+});
+
 var Http = {
 	request: function(options) {
 		var xhr = new self.XMLHttpRequest();
@@ -13440,10 +14335,10 @@ var Http = {
 	}
 };
 
-var CanvasProvider = {
+var CanvasProvider = Base.exports.CanvasProvider = {
 	canvases: [],
 
-	getCanvas: function(width, height) {
+	getCanvas: function(width, height, options) {
 		if (!window)
 			return null;
 		var canvas,
@@ -13458,7 +14353,7 @@ var CanvasProvider = {
 			canvas = document.createElement('canvas');
 			clear = false;
 		}
-		var ctx = canvas.getContext('2d');
+		var ctx = canvas.getContext('2d', options || {});
 		if (!ctx) {
 			throw new Error('Canvas ' + canvas +
 					' is unable to provide a 2D context.');
@@ -13474,9 +14369,9 @@ var CanvasProvider = {
 		return canvas;
 	},
 
-	getContext: function(width, height) {
-		var canvas = this.getCanvas(width, height);
-		return canvas ? canvas.getContext('2d') : null;
+	getContext: function(width, height, options) {
+		var canvas = this.getCanvas(width, height, options);
+		return canvas ? canvas.getContext('2d', options || {}) : null;
 	},
 
 	release: function(obj) {
@@ -13674,7 +14569,7 @@ var BlendMode = new function() {
 		this[mode] = true;
 	}, {});
 
-	var ctx = CanvasProvider.getContext(1, 1);
+	var ctx = CanvasProvider.getContext(1, 1, { willReadFrequently: true });
 	if (ctx) {
 		Base.each(modes, function(func, mode) {
 			var darken = mode === 'darken',
@@ -13841,11 +14736,16 @@ new function() {
 		var attrs = new Base(),
 			trans = matrix.getTranslation();
 		if (coordinates) {
-			matrix = matrix._shiftless();
-			var point = matrix._inverseTransform(trans);
+			var point;
+			if (matrix.isInvertible()) {
+				matrix = matrix._shiftless();
+				point = matrix._inverseTransform(trans);
+				trans = null;
+			} else {
+				point = new Point();
+			}
 			attrs[center ? 'cx' : 'x'] = point.x;
 			attrs[center ? 'cy' : 'y'] = point.y;
-			trans = null;
 		}
 		if (!matrix.isIdentity()) {
 			var decomposed = matrix.decompose();
@@ -13986,7 +14886,7 @@ new function() {
 			definition = item._definition,
 			node = getDefinition(definition, 'symbol'),
 			definitionItem = definition._item,
-			bounds = definitionItem.getBounds();
+			bounds = definitionItem.getStrokeBounds();
 		if (!node) {
 			node = SvgElement.create('symbol', {
 				viewBox: formatter.rectangle(bounds)
@@ -14207,7 +15107,7 @@ new function() {
 			if (rect) {
 				attrs.width = rect.width;
 				attrs.height = rect.height;
-				if (rect.x || rect.y)
+				if (rect.x || rect.x === 0 || rect.y || rect.y === 0)
 					attrs.viewBox = formatter.rectangle(rect);
 			}
 			var node = SvgElement.create('svg', attrs, formatter),
@@ -14229,8 +15129,9 @@ new function() {
 	var definitions = {},
 		rootSize;
 
-	function getValue(node, name, isString, allowNull, allowPercent) {
-		var value = SvgElement.get(node, name),
+	function getValue(node, name, isString, allowNull, allowPercent,
+			defaultValue) {
+		var value = SvgElement.get(node, name) || defaultValue,
 			res = value == null
 				? allowNull
 					? null
@@ -14244,9 +15145,9 @@ new function() {
 			: res;
 	}
 
-	function getPoint(node, x, y, allowNull, allowPercent) {
-		x = getValue(node, x || 'x', false, allowNull, allowPercent);
-		y = getValue(node, y || 'y', false, allowNull, allowPercent);
+	function getPoint(node, x, y, allowNull, allowPercent, defaultX, defaultY) {
+		x = getValue(node, x || 'x', false, allowNull, allowPercent, defaultX);
+		y = getValue(node, y || 'y', false, allowNull, allowPercent, defaultY);
 		return allowNull && (x == null || y == null) ? null
 				: new Point(x, y);
 	}
@@ -14348,13 +15249,16 @@ new function() {
 			scaleToBounds = getValue(node, 'gradientUnits', true) !==
 				'userSpaceOnUse';
 		if (radial) {
-			origin = getPoint(node, 'cx', 'cy', false, scaleToBounds);
+			origin = getPoint(node, 'cx', 'cy', false, scaleToBounds,
+				'50%', '50%');
 			destination = origin.add(
-					getValue(node, 'r', false, false, scaleToBounds), 0);
+				getValue(node, 'r', false, false, scaleToBounds, '50%'), 0);
 			highlight = getPoint(node, 'fx', 'fy', true, scaleToBounds);
 		} else {
-			origin = getPoint(node, 'x1', 'y1', false, scaleToBounds);
-			destination = getPoint(node, 'x2', 'y2', false, scaleToBounds);
+			origin = getPoint(node, 'x1', 'y1', false, scaleToBounds,
+				'0%', '0%');
+			destination = getPoint(node, 'x2', 'y2', false, scaleToBounds,
+				'100%', '0%');
 		}
 		var color = applyAttributes(
 				new Color(gradient, origin, destination, highlight), node);
@@ -14385,9 +15289,8 @@ new function() {
 			raster.on('load', function() {
 				var size = getSize(node);
 				this.setSize(size);
-				var center = this._matrix._transformPoint(
-						getPoint(node).add(size.divide(2)));
-				this.translate(center);
+				var center = getPoint(node).add(size.divide(2));
+				this._matrix.append(new Matrix().translate(center));
 			});
 			return raster;
 		},
@@ -14441,7 +15344,9 @@ new function() {
 					getPoint(node, 'dx', 'dy')));
 			text.setContent(node.textContent.trim() || '');
 			return text;
-		}
+		},
+
+		switch: importGroup
 	};
 
 	function applyTransform(item, value, name, node) {
@@ -14463,10 +15368,10 @@ new function() {
 							new Matrix(v[0], v[1], v[2], v[3], v[4], v[5]));
 					break;
 				case 'rotate':
-					matrix.rotate(v[0], v[1], v[2]);
+					matrix.rotate(v[0], v[1] || 0, v[2] || 0);
 					break;
 				case 'translate':
-					matrix.translate(v[0], v[1]);
+					matrix.translate(v[0], v[1] || 0);
 					break;
 				case 'scale':
 					matrix.scale(v);
@@ -14590,7 +15495,7 @@ new function() {
 	function getAttribute(node, name, styles) {
 		var attr = node.attributes[name],
 			value = attr && attr.value;
-		if (!value) {
+		if (!value && node.style) {
 			var style = Base.camelize(name);
 			value = node.style[style];
 			if (!value && styles.node[style] !== styles.parent[style])
@@ -14602,19 +15507,17 @@ new function() {
 	}
 
 	function applyAttributes(item, node, isRoot) {
-		if (node.style) {
-			var parent = node.parentNode,
-				styles = {
-					node: DomElement.getStyles(node) || {},
-					parent: !isRoot && !/^defs$/i.test(parent.tagName)
-							&& DomElement.getStyles(parent) || {}
-				};
-			Base.each(attributes, function(apply, name) {
-				var value = getAttribute(node, name, styles);
-				item = value !== undefined
-						&& apply(item, value, name, node, styles) || item;
-			});
-		}
+		var parent = node.parentNode,
+			styles = {
+				node: DomElement.getStyles(node) || {},
+				parent: !isRoot && !/^defs$/i.test(parent.tagName)
+						&& DomElement.getStyles(parent) || {}
+			};
+		Base.each(attributes, function(apply, name) {
+			var value = getAttribute(node, name, styles);
+			item = value !== undefined
+					&& apply(item, value, name, node, styles) || item;
+		});
 		return item;
 	}
 
@@ -14700,8 +15603,12 @@ new function() {
 
 		function onLoad(svg) {
 			try {
-				var node = typeof svg === 'object' ? svg : new self.DOMParser()
-						.parseFromString(svg, 'image/svg+xml');
+				var node = typeof svg === 'object'
+					? svg
+					: new self.DOMParser().parseFromString(
+						svg.trim(),
+						'image/svg+xml'
+					);
 				if (!node.nodeName) {
 					node = null;
 					throw new Error('Unsupported SVG source: ' + source);
@@ -14728,7 +15635,7 @@ new function() {
 			}
 		}
 
-		if (typeof source === 'string' && !/^.*</.test(source)) {
+		if (typeof source === 'string' && !/^[\s\S]*</.test(source)) {
 			var node = document.getElementById(source);
 			if (node) {
 				onLoad(node);
@@ -14770,1705 +15677,7 @@ new function() {
 	});
 };
 
-Base.exports.PaperScript = function() {
-	var global = this,
-		acorn = global.acorn;
-	if (!acorn && typeof require !== 'undefined') {
-		try { acorn = require('acorn'); } catch(e) {}
-	}
-	if (!acorn) {
-		var exports, module;
-		acorn = exports = module = {};
-
-(function(root, mod) {
-  if (typeof exports == "object" && typeof module == "object") return mod(exports);
-  if (typeof define == "function" && define.amd) return define(["exports"], mod);
-  mod(root.acorn || (root.acorn = {}));
-})(this, function(exports) {
-  "use strict";
-
-  exports.version = "0.5.0";
-
-  var options, input, inputLen, sourceFile;
-
-  exports.parse = function(inpt, opts) {
-	input = String(inpt); inputLen = input.length;
-	setOptions(opts);
-	initTokenState();
-	return parseTopLevel(options.program);
-  };
-
-  var defaultOptions = exports.defaultOptions = {
-	ecmaVersion: 5,
-	strictSemicolons: false,
-	allowTrailingCommas: true,
-	forbidReserved: false,
-	allowReturnOutsideFunction: false,
-	locations: false,
-	onComment: null,
-	ranges: false,
-	program: null,
-	sourceFile: null,
-	directSourceFile: null
-  };
-
-  function setOptions(opts) {
-	options = opts || {};
-	for (var opt in defaultOptions) if (!Object.prototype.hasOwnProperty.call(options, opt))
-	  options[opt] = defaultOptions[opt];
-	sourceFile = options.sourceFile || null;
-  }
-
-  var getLineInfo = exports.getLineInfo = function(input, offset) {
-	for (var line = 1, cur = 0;;) {
-	  lineBreak.lastIndex = cur;
-	  var match = lineBreak.exec(input);
-	  if (match && match.index < offset) {
-		++line;
-		cur = match.index + match[0].length;
-	  } else break;
-	}
-	return {line: line, column: offset - cur};
-  };
-
-  exports.tokenize = function(inpt, opts) {
-	input = String(inpt); inputLen = input.length;
-	setOptions(opts);
-	initTokenState();
-
-	var t = {};
-	function getToken(forceRegexp) {
-	  lastEnd = tokEnd;
-	  readToken(forceRegexp);
-	  t.start = tokStart; t.end = tokEnd;
-	  t.startLoc = tokStartLoc; t.endLoc = tokEndLoc;
-	  t.type = tokType; t.value = tokVal;
-	  return t;
-	}
-	getToken.jumpTo = function(pos, reAllowed) {
-	  tokPos = pos;
-	  if (options.locations) {
-		tokCurLine = 1;
-		tokLineStart = lineBreak.lastIndex = 0;
-		var match;
-		while ((match = lineBreak.exec(input)) && match.index < pos) {
-		  ++tokCurLine;
-		  tokLineStart = match.index + match[0].length;
-		}
-	  }
-	  tokRegexpAllowed = reAllowed;
-	  skipSpace();
-	};
-	return getToken;
-  };
-
-  var tokPos;
-
-  var tokStart, tokEnd;
-
-  var tokStartLoc, tokEndLoc;
-
-  var tokType, tokVal;
-
-  var tokRegexpAllowed;
-
-  var tokCurLine, tokLineStart;
-
-  var lastStart, lastEnd, lastEndLoc;
-
-  var inFunction, labels, strict;
-
-  function raise(pos, message) {
-	var loc = getLineInfo(input, pos);
-	message += " (" + loc.line + ":" + loc.column + ")";
-	var err = new SyntaxError(message);
-	err.pos = pos; err.loc = loc; err.raisedAt = tokPos;
-	throw err;
-  }
-
-  var empty = [];
-
-  var _num = {type: "num"}, _regexp = {type: "regexp"}, _string = {type: "string"};
-  var _name = {type: "name"}, _eof = {type: "eof"};
-
-  var _break = {keyword: "break"}, _case = {keyword: "case", beforeExpr: true}, _catch = {keyword: "catch"};
-  var _continue = {keyword: "continue"}, _debugger = {keyword: "debugger"}, _default = {keyword: "default"};
-  var _do = {keyword: "do", isLoop: true}, _else = {keyword: "else", beforeExpr: true};
-  var _finally = {keyword: "finally"}, _for = {keyword: "for", isLoop: true}, _function = {keyword: "function"};
-  var _if = {keyword: "if"}, _return = {keyword: "return", beforeExpr: true}, _switch = {keyword: "switch"};
-  var _throw = {keyword: "throw", beforeExpr: true}, _try = {keyword: "try"}, _var = {keyword: "var"};
-  var _while = {keyword: "while", isLoop: true}, _with = {keyword: "with"}, _new = {keyword: "new", beforeExpr: true};
-  var _this = {keyword: "this"};
-
-  var _null = {keyword: "null", atomValue: null}, _true = {keyword: "true", atomValue: true};
-  var _false = {keyword: "false", atomValue: false};
-
-  var _in = {keyword: "in", binop: 7, beforeExpr: true};
-
-  var keywordTypes = {"break": _break, "case": _case, "catch": _catch,
-					  "continue": _continue, "debugger": _debugger, "default": _default,
-					  "do": _do, "else": _else, "finally": _finally, "for": _for,
-					  "function": _function, "if": _if, "return": _return, "switch": _switch,
-					  "throw": _throw, "try": _try, "var": _var, "while": _while, "with": _with,
-					  "null": _null, "true": _true, "false": _false, "new": _new, "in": _in,
-					  "instanceof": {keyword: "instanceof", binop: 7, beforeExpr: true}, "this": _this,
-					  "typeof": {keyword: "typeof", prefix: true, beforeExpr: true},
-					  "void": {keyword: "void", prefix: true, beforeExpr: true},
-					  "delete": {keyword: "delete", prefix: true, beforeExpr: true}};
-
-  var _bracketL = {type: "[", beforeExpr: true}, _bracketR = {type: "]"}, _braceL = {type: "{", beforeExpr: true};
-  var _braceR = {type: "}"}, _parenL = {type: "(", beforeExpr: true}, _parenR = {type: ")"};
-  var _comma = {type: ",", beforeExpr: true}, _semi = {type: ";", beforeExpr: true};
-  var _colon = {type: ":", beforeExpr: true}, _dot = {type: "."}, _question = {type: "?", beforeExpr: true};
-
-  var _slash = {binop: 10, beforeExpr: true}, _eq = {isAssign: true, beforeExpr: true};
-  var _assign = {isAssign: true, beforeExpr: true};
-  var _incDec = {postfix: true, prefix: true, isUpdate: true}, _prefix = {prefix: true, beforeExpr: true};
-  var _logicalOR = {binop: 1, beforeExpr: true};
-  var _logicalAND = {binop: 2, beforeExpr: true};
-  var _bitwiseOR = {binop: 3, beforeExpr: true};
-  var _bitwiseXOR = {binop: 4, beforeExpr: true};
-  var _bitwiseAND = {binop: 5, beforeExpr: true};
-  var _equality = {binop: 6, beforeExpr: true};
-  var _relational = {binop: 7, beforeExpr: true};
-  var _bitShift = {binop: 8, beforeExpr: true};
-  var _plusMin = {binop: 9, prefix: true, beforeExpr: true};
-  var _multiplyModulo = {binop: 10, beforeExpr: true};
-
-  exports.tokTypes = {bracketL: _bracketL, bracketR: _bracketR, braceL: _braceL, braceR: _braceR,
-					  parenL: _parenL, parenR: _parenR, comma: _comma, semi: _semi, colon: _colon,
-					  dot: _dot, question: _question, slash: _slash, eq: _eq, name: _name, eof: _eof,
-					  num: _num, regexp: _regexp, string: _string};
-  for (var kw in keywordTypes) exports.tokTypes["_" + kw] = keywordTypes[kw];
-
-  function makePredicate(words) {
-	words = words.split(" ");
-	var f = "", cats = [];
-	out: for (var i = 0; i < words.length; ++i) {
-	  for (var j = 0; j < cats.length; ++j)
-		if (cats[j][0].length == words[i].length) {
-		  cats[j].push(words[i]);
-		  continue out;
-		}
-	  cats.push([words[i]]);
-	}
-	function compareTo(arr) {
-	  if (arr.length == 1) return f += "return str === " + JSON.stringify(arr[0]) + ";";
-	  f += "switch(str){";
-	  for (var i = 0; i < arr.length; ++i) f += "case " + JSON.stringify(arr[i]) + ":";
-	  f += "return true}return false;";
-	}
-
-	if (cats.length > 3) {
-	  cats.sort(function(a, b) {return b.length - a.length;});
-	  f += "switch(str.length){";
-	  for (var i = 0; i < cats.length; ++i) {
-		var cat = cats[i];
-		f += "case " + cat[0].length + ":";
-		compareTo(cat);
-	  }
-	  f += "}";
-
-	} else {
-	  compareTo(words);
-	}
-	return new Function("str", f);
-  }
-
-  var isReservedWord3 = makePredicate("abstract boolean byte char class double enum export extends final float goto implements import int interface long native package private protected public short static super synchronized throws transient volatile");
-
-  var isReservedWord5 = makePredicate("class enum extends super const export import");
-
-  var isStrictReservedWord = makePredicate("implements interface let package private protected public static yield");
-
-  var isStrictBadIdWord = makePredicate("eval arguments");
-
-  var isKeyword = makePredicate("break case catch continue debugger default do else finally for function if return switch throw try var while with null true false instanceof typeof void delete new in this");
-
-  var nonASCIIwhitespace = /[\u1680\u180e\u2000-\u200a\u202f\u205f\u3000\ufeff]/;
-  var nonASCIIidentifierStartChars = "\xaa\xb5\xba\xc0-\xd6\xd8-\xf6\xf8-\u02c1\u02c6-\u02d1\u02e0-\u02e4\u02ec\u02ee\u0370-\u0374\u0376\u0377\u037a-\u037d\u0386\u0388-\u038a\u038c\u038e-\u03a1\u03a3-\u03f5\u03f7-\u0481\u048a-\u0527\u0531-\u0556\u0559\u0561-\u0587\u05d0-\u05ea\u05f0-\u05f2\u0620-\u064a\u066e\u066f\u0671-\u06d3\u06d5\u06e5\u06e6\u06ee\u06ef\u06fa-\u06fc\u06ff\u0710\u0712-\u072f\u074d-\u07a5\u07b1\u07ca-\u07ea\u07f4\u07f5\u07fa\u0800-\u0815\u081a\u0824\u0828\u0840-\u0858\u08a0\u08a2-\u08ac\u0904-\u0939\u093d\u0950\u0958-\u0961\u0971-\u0977\u0979-\u097f\u0985-\u098c\u098f\u0990\u0993-\u09a8\u09aa-\u09b0\u09b2\u09b6-\u09b9\u09bd\u09ce\u09dc\u09dd\u09df-\u09e1\u09f0\u09f1\u0a05-\u0a0a\u0a0f\u0a10\u0a13-\u0a28\u0a2a-\u0a30\u0a32\u0a33\u0a35\u0a36\u0a38\u0a39\u0a59-\u0a5c\u0a5e\u0a72-\u0a74\u0a85-\u0a8d\u0a8f-\u0a91\u0a93-\u0aa8\u0aaa-\u0ab0\u0ab2\u0ab3\u0ab5-\u0ab9\u0abd\u0ad0\u0ae0\u0ae1\u0b05-\u0b0c\u0b0f\u0b10\u0b13-\u0b28\u0b2a-\u0b30\u0b32\u0b33\u0b35-\u0b39\u0b3d\u0b5c\u0b5d\u0b5f-\u0b61\u0b71\u0b83\u0b85-\u0b8a\u0b8e-\u0b90\u0b92-\u0b95\u0b99\u0b9a\u0b9c\u0b9e\u0b9f\u0ba3\u0ba4\u0ba8-\u0baa\u0bae-\u0bb9\u0bd0\u0c05-\u0c0c\u0c0e-\u0c10\u0c12-\u0c28\u0c2a-\u0c33\u0c35-\u0c39\u0c3d\u0c58\u0c59\u0c60\u0c61\u0c85-\u0c8c\u0c8e-\u0c90\u0c92-\u0ca8\u0caa-\u0cb3\u0cb5-\u0cb9\u0cbd\u0cde\u0ce0\u0ce1\u0cf1\u0cf2\u0d05-\u0d0c\u0d0e-\u0d10\u0d12-\u0d3a\u0d3d\u0d4e\u0d60\u0d61\u0d7a-\u0d7f\u0d85-\u0d96\u0d9a-\u0db1\u0db3-\u0dbb\u0dbd\u0dc0-\u0dc6\u0e01-\u0e30\u0e32\u0e33\u0e40-\u0e46\u0e81\u0e82\u0e84\u0e87\u0e88\u0e8a\u0e8d\u0e94-\u0e97\u0e99-\u0e9f\u0ea1-\u0ea3\u0ea5\u0ea7\u0eaa\u0eab\u0ead-\u0eb0\u0eb2\u0eb3\u0ebd\u0ec0-\u0ec4\u0ec6\u0edc-\u0edf\u0f00\u0f40-\u0f47\u0f49-\u0f6c\u0f88-\u0f8c\u1000-\u102a\u103f\u1050-\u1055\u105a-\u105d\u1061\u1065\u1066\u106e-\u1070\u1075-\u1081\u108e\u10a0-\u10c5\u10c7\u10cd\u10d0-\u10fa\u10fc-\u1248\u124a-\u124d\u1250-\u1256\u1258\u125a-\u125d\u1260-\u1288\u128a-\u128d\u1290-\u12b0\u12b2-\u12b5\u12b8-\u12be\u12c0\u12c2-\u12c5\u12c8-\u12d6\u12d8-\u1310\u1312-\u1315\u1318-\u135a\u1380-\u138f\u13a0-\u13f4\u1401-\u166c\u166f-\u167f\u1681-\u169a\u16a0-\u16ea\u16ee-\u16f0\u1700-\u170c\u170e-\u1711\u1720-\u1731\u1740-\u1751\u1760-\u176c\u176e-\u1770\u1780-\u17b3\u17d7\u17dc\u1820-\u1877\u1880-\u18a8\u18aa\u18b0-\u18f5\u1900-\u191c\u1950-\u196d\u1970-\u1974\u1980-\u19ab\u19c1-\u19c7\u1a00-\u1a16\u1a20-\u1a54\u1aa7\u1b05-\u1b33\u1b45-\u1b4b\u1b83-\u1ba0\u1bae\u1baf\u1bba-\u1be5\u1c00-\u1c23\u1c4d-\u1c4f\u1c5a-\u1c7d\u1ce9-\u1cec\u1cee-\u1cf1\u1cf5\u1cf6\u1d00-\u1dbf\u1e00-\u1f15\u1f18-\u1f1d\u1f20-\u1f45\u1f48-\u1f4d\u1f50-\u1f57\u1f59\u1f5b\u1f5d\u1f5f-\u1f7d\u1f80-\u1fb4\u1fb6-\u1fbc\u1fbe\u1fc2-\u1fc4\u1fc6-\u1fcc\u1fd0-\u1fd3\u1fd6-\u1fdb\u1fe0-\u1fec\u1ff2-\u1ff4\u1ff6-\u1ffc\u2071\u207f\u2090-\u209c\u2102\u2107\u210a-\u2113\u2115\u2119-\u211d\u2124\u2126\u2128\u212a-\u212d\u212f-\u2139\u213c-\u213f\u2145-\u2149\u214e\u2160-\u2188\u2c00-\u2c2e\u2c30-\u2c5e\u2c60-\u2ce4\u2ceb-\u2cee\u2cf2\u2cf3\u2d00-\u2d25\u2d27\u2d2d\u2d30-\u2d67\u2d6f\u2d80-\u2d96\u2da0-\u2da6\u2da8-\u2dae\u2db0-\u2db6\u2db8-\u2dbe\u2dc0-\u2dc6\u2dc8-\u2dce\u2dd0-\u2dd6\u2dd8-\u2dde\u2e2f\u3005-\u3007\u3021-\u3029\u3031-\u3035\u3038-\u303c\u3041-\u3096\u309d-\u309f\u30a1-\u30fa\u30fc-\u30ff\u3105-\u312d\u3131-\u318e\u31a0-\u31ba\u31f0-\u31ff\u3400-\u4db5\u4e00-\u9fcc\ua000-\ua48c\ua4d0-\ua4fd\ua500-\ua60c\ua610-\ua61f\ua62a\ua62b\ua640-\ua66e\ua67f-\ua697\ua6a0-\ua6ef\ua717-\ua71f\ua722-\ua788\ua78b-\ua78e\ua790-\ua793\ua7a0-\ua7aa\ua7f8-\ua801\ua803-\ua805\ua807-\ua80a\ua80c-\ua822\ua840-\ua873\ua882-\ua8b3\ua8f2-\ua8f7\ua8fb\ua90a-\ua925\ua930-\ua946\ua960-\ua97c\ua984-\ua9b2\ua9cf\uaa00-\uaa28\uaa40-\uaa42\uaa44-\uaa4b\uaa60-\uaa76\uaa7a\uaa80-\uaaaf\uaab1\uaab5\uaab6\uaab9-\uaabd\uaac0\uaac2\uaadb-\uaadd\uaae0-\uaaea\uaaf2-\uaaf4\uab01-\uab06\uab09-\uab0e\uab11-\uab16\uab20-\uab26\uab28-\uab2e\uabc0-\uabe2\uac00-\ud7a3\ud7b0-\ud7c6\ud7cb-\ud7fb\uf900-\ufa6d\ufa70-\ufad9\ufb00-\ufb06\ufb13-\ufb17\ufb1d\ufb1f-\ufb28\ufb2a-\ufb36\ufb38-\ufb3c\ufb3e\ufb40\ufb41\ufb43\ufb44\ufb46-\ufbb1\ufbd3-\ufd3d\ufd50-\ufd8f\ufd92-\ufdc7\ufdf0-\ufdfb\ufe70-\ufe74\ufe76-\ufefc\uff21-\uff3a\uff41-\uff5a\uff66-\uffbe\uffc2-\uffc7\uffca-\uffcf\uffd2-\uffd7\uffda-\uffdc";
-  var nonASCIIidentifierChars = "\u0300-\u036f\u0483-\u0487\u0591-\u05bd\u05bf\u05c1\u05c2\u05c4\u05c5\u05c7\u0610-\u061a\u0620-\u0649\u0672-\u06d3\u06e7-\u06e8\u06fb-\u06fc\u0730-\u074a\u0800-\u0814\u081b-\u0823\u0825-\u0827\u0829-\u082d\u0840-\u0857\u08e4-\u08fe\u0900-\u0903\u093a-\u093c\u093e-\u094f\u0951-\u0957\u0962-\u0963\u0966-\u096f\u0981-\u0983\u09bc\u09be-\u09c4\u09c7\u09c8\u09d7\u09df-\u09e0\u0a01-\u0a03\u0a3c\u0a3e-\u0a42\u0a47\u0a48\u0a4b-\u0a4d\u0a51\u0a66-\u0a71\u0a75\u0a81-\u0a83\u0abc\u0abe-\u0ac5\u0ac7-\u0ac9\u0acb-\u0acd\u0ae2-\u0ae3\u0ae6-\u0aef\u0b01-\u0b03\u0b3c\u0b3e-\u0b44\u0b47\u0b48\u0b4b-\u0b4d\u0b56\u0b57\u0b5f-\u0b60\u0b66-\u0b6f\u0b82\u0bbe-\u0bc2\u0bc6-\u0bc8\u0bca-\u0bcd\u0bd7\u0be6-\u0bef\u0c01-\u0c03\u0c46-\u0c48\u0c4a-\u0c4d\u0c55\u0c56\u0c62-\u0c63\u0c66-\u0c6f\u0c82\u0c83\u0cbc\u0cbe-\u0cc4\u0cc6-\u0cc8\u0cca-\u0ccd\u0cd5\u0cd6\u0ce2-\u0ce3\u0ce6-\u0cef\u0d02\u0d03\u0d46-\u0d48\u0d57\u0d62-\u0d63\u0d66-\u0d6f\u0d82\u0d83\u0dca\u0dcf-\u0dd4\u0dd6\u0dd8-\u0ddf\u0df2\u0df3\u0e34-\u0e3a\u0e40-\u0e45\u0e50-\u0e59\u0eb4-\u0eb9\u0ec8-\u0ecd\u0ed0-\u0ed9\u0f18\u0f19\u0f20-\u0f29\u0f35\u0f37\u0f39\u0f41-\u0f47\u0f71-\u0f84\u0f86-\u0f87\u0f8d-\u0f97\u0f99-\u0fbc\u0fc6\u1000-\u1029\u1040-\u1049\u1067-\u106d\u1071-\u1074\u1082-\u108d\u108f-\u109d\u135d-\u135f\u170e-\u1710\u1720-\u1730\u1740-\u1750\u1772\u1773\u1780-\u17b2\u17dd\u17e0-\u17e9\u180b-\u180d\u1810-\u1819\u1920-\u192b\u1930-\u193b\u1951-\u196d\u19b0-\u19c0\u19c8-\u19c9\u19d0-\u19d9\u1a00-\u1a15\u1a20-\u1a53\u1a60-\u1a7c\u1a7f-\u1a89\u1a90-\u1a99\u1b46-\u1b4b\u1b50-\u1b59\u1b6b-\u1b73\u1bb0-\u1bb9\u1be6-\u1bf3\u1c00-\u1c22\u1c40-\u1c49\u1c5b-\u1c7d\u1cd0-\u1cd2\u1d00-\u1dbe\u1e01-\u1f15\u200c\u200d\u203f\u2040\u2054\u20d0-\u20dc\u20e1\u20e5-\u20f0\u2d81-\u2d96\u2de0-\u2dff\u3021-\u3028\u3099\u309a\ua640-\ua66d\ua674-\ua67d\ua69f\ua6f0-\ua6f1\ua7f8-\ua800\ua806\ua80b\ua823-\ua827\ua880-\ua881\ua8b4-\ua8c4\ua8d0-\ua8d9\ua8f3-\ua8f7\ua900-\ua909\ua926-\ua92d\ua930-\ua945\ua980-\ua983\ua9b3-\ua9c0\uaa00-\uaa27\uaa40-\uaa41\uaa4c-\uaa4d\uaa50-\uaa59\uaa7b\uaae0-\uaae9\uaaf2-\uaaf3\uabc0-\uabe1\uabec\uabed\uabf0-\uabf9\ufb20-\ufb28\ufe00-\ufe0f\ufe20-\ufe26\ufe33\ufe34\ufe4d-\ufe4f\uff10-\uff19\uff3f";
-  var nonASCIIidentifierStart = new RegExp("[" + nonASCIIidentifierStartChars + "]");
-  var nonASCIIidentifier = new RegExp("[" + nonASCIIidentifierStartChars + nonASCIIidentifierChars + "]");
-
-  var newline = /[\n\r\u2028\u2029]/;
-
-  var lineBreak = /\r\n|[\n\r\u2028\u2029]/g;
-
-  var isIdentifierStart = exports.isIdentifierStart = function(code) {
-	if (code < 65) return code === 36;
-	if (code < 91) return true;
-	if (code < 97) return code === 95;
-	if (code < 123)return true;
-	return code >= 0xaa && nonASCIIidentifierStart.test(String.fromCharCode(code));
-  };
-
-  var isIdentifierChar = exports.isIdentifierChar = function(code) {
-	if (code < 48) return code === 36;
-	if (code < 58) return true;
-	if (code < 65) return false;
-	if (code < 91) return true;
-	if (code < 97) return code === 95;
-	if (code < 123)return true;
-	return code >= 0xaa && nonASCIIidentifier.test(String.fromCharCode(code));
-  };
-
-  function line_loc_t() {
-	this.line = tokCurLine;
-	this.column = tokPos - tokLineStart;
-  }
-
-  function initTokenState() {
-	tokCurLine = 1;
-	tokPos = tokLineStart = 0;
-	tokRegexpAllowed = true;
-	skipSpace();
-  }
-
-  function finishToken(type, val) {
-	tokEnd = tokPos;
-	if (options.locations) tokEndLoc = new line_loc_t;
-	tokType = type;
-	skipSpace();
-	tokVal = val;
-	tokRegexpAllowed = type.beforeExpr;
-  }
-
-  function skipBlockComment() {
-	var startLoc = options.onComment && options.locations && new line_loc_t;
-	var start = tokPos, end = input.indexOf("*/", tokPos += 2);
-	if (end === -1) raise(tokPos - 2, "Unterminated comment");
-	tokPos = end + 2;
-	if (options.locations) {
-	  lineBreak.lastIndex = start;
-	  var match;
-	  while ((match = lineBreak.exec(input)) && match.index < tokPos) {
-		++tokCurLine;
-		tokLineStart = match.index + match[0].length;
-	  }
-	}
-	if (options.onComment)
-	  options.onComment(true, input.slice(start + 2, end), start, tokPos,
-						startLoc, options.locations && new line_loc_t);
-  }
-
-  function skipLineComment() {
-	var start = tokPos;
-	var startLoc = options.onComment && options.locations && new line_loc_t;
-	var ch = input.charCodeAt(tokPos+=2);
-	while (tokPos < inputLen && ch !== 10 && ch !== 13 && ch !== 8232 && ch !== 8233) {
-	  ++tokPos;
-	  ch = input.charCodeAt(tokPos);
-	}
-	if (options.onComment)
-	  options.onComment(false, input.slice(start + 2, tokPos), start, tokPos,
-						startLoc, options.locations && new line_loc_t);
-  }
-
-  function skipSpace() {
-	while (tokPos < inputLen) {
-	  var ch = input.charCodeAt(tokPos);
-	  if (ch === 32) {
-		++tokPos;
-	  } else if (ch === 13) {
-		++tokPos;
-		var next = input.charCodeAt(tokPos);
-		if (next === 10) {
-		  ++tokPos;
-		}
-		if (options.locations) {
-		  ++tokCurLine;
-		  tokLineStart = tokPos;
-		}
-	  } else if (ch === 10 || ch === 8232 || ch === 8233) {
-		++tokPos;
-		if (options.locations) {
-		  ++tokCurLine;
-		  tokLineStart = tokPos;
-		}
-	  } else if (ch > 8 && ch < 14) {
-		++tokPos;
-	  } else if (ch === 47) {
-		var next = input.charCodeAt(tokPos + 1);
-		if (next === 42) {
-		  skipBlockComment();
-		} else if (next === 47) {
-		  skipLineComment();
-		} else break;
-	  } else if (ch === 160) {
-		++tokPos;
-	  } else if (ch >= 5760 && nonASCIIwhitespace.test(String.fromCharCode(ch))) {
-		++tokPos;
-	  } else {
-		break;
-	  }
-	}
-  }
-
-  function readToken_dot() {
-	var next = input.charCodeAt(tokPos + 1);
-	if (next >= 48 && next <= 57) return readNumber(true);
-	++tokPos;
-	return finishToken(_dot);
-  }
-
-  function readToken_slash() {
-	var next = input.charCodeAt(tokPos + 1);
-	if (tokRegexpAllowed) {++tokPos; return readRegexp();}
-	if (next === 61) return finishOp(_assign, 2);
-	return finishOp(_slash, 1);
-  }
-
-  function readToken_mult_modulo() {
-	var next = input.charCodeAt(tokPos + 1);
-	if (next === 61) return finishOp(_assign, 2);
-	return finishOp(_multiplyModulo, 1);
-  }
-
-  function readToken_pipe_amp(code) {
-	var next = input.charCodeAt(tokPos + 1);
-	if (next === code) return finishOp(code === 124 ? _logicalOR : _logicalAND, 2);
-	if (next === 61) return finishOp(_assign, 2);
-	return finishOp(code === 124 ? _bitwiseOR : _bitwiseAND, 1);
-  }
-
-  function readToken_caret() {
-	var next = input.charCodeAt(tokPos + 1);
-	if (next === 61) return finishOp(_assign, 2);
-	return finishOp(_bitwiseXOR, 1);
-  }
-
-  function readToken_plus_min(code) {
-	var next = input.charCodeAt(tokPos + 1);
-	if (next === code) {
-	  if (next == 45 && input.charCodeAt(tokPos + 2) == 62 &&
-		  newline.test(input.slice(lastEnd, tokPos))) {
-		tokPos += 3;
-		skipLineComment();
-		skipSpace();
-		return readToken();
-	  }
-	  return finishOp(_incDec, 2);
-	}
-	if (next === 61) return finishOp(_assign, 2);
-	return finishOp(_plusMin, 1);
-  }
-
-  function readToken_lt_gt(code) {
-	var next = input.charCodeAt(tokPos + 1);
-	var size = 1;
-	if (next === code) {
-	  size = code === 62 && input.charCodeAt(tokPos + 2) === 62 ? 3 : 2;
-	  if (input.charCodeAt(tokPos + size) === 61) return finishOp(_assign, size + 1);
-	  return finishOp(_bitShift, size);
-	}
-	if (next == 33 && code == 60 && input.charCodeAt(tokPos + 2) == 45 &&
-		input.charCodeAt(tokPos + 3) == 45) {
-	  tokPos += 4;
-	  skipLineComment();
-	  skipSpace();
-	  return readToken();
-	}
-	if (next === 61)
-	  size = input.charCodeAt(tokPos + 2) === 61 ? 3 : 2;
-	return finishOp(_relational, size);
-  }
-
-  function readToken_eq_excl(code) {
-	var next = input.charCodeAt(tokPos + 1);
-	if (next === 61) return finishOp(_equality, input.charCodeAt(tokPos + 2) === 61 ? 3 : 2);
-	return finishOp(code === 61 ? _eq : _prefix, 1);
-  }
-
-  function getTokenFromCode(code) {
-	switch(code) {
-	case 46:
-	  return readToken_dot();
-
-	case 40: ++tokPos; return finishToken(_parenL);
-	case 41: ++tokPos; return finishToken(_parenR);
-	case 59: ++tokPos; return finishToken(_semi);
-	case 44: ++tokPos; return finishToken(_comma);
-	case 91: ++tokPos; return finishToken(_bracketL);
-	case 93: ++tokPos; return finishToken(_bracketR);
-	case 123: ++tokPos; return finishToken(_braceL);
-	case 125: ++tokPos; return finishToken(_braceR);
-	case 58: ++tokPos; return finishToken(_colon);
-	case 63: ++tokPos; return finishToken(_question);
-
-	case 48:
-	  var next = input.charCodeAt(tokPos + 1);
-	  if (next === 120 || next === 88) return readHexNumber();
-	case 49: case 50: case 51: case 52: case 53: case 54: case 55: case 56: case 57:
-	  return readNumber(false);
-
-	case 34: case 39:
-	  return readString(code);
-
-	case 47:
-	  return readToken_slash(code);
-
-	case 37: case 42:
-	  return readToken_mult_modulo();
-
-	case 124: case 38:
-	  return readToken_pipe_amp(code);
-
-	case 94:
-	  return readToken_caret();
-
-	case 43: case 45:
-	  return readToken_plus_min(code);
-
-	case 60: case 62:
-	  return readToken_lt_gt(code);
-
-	case 61: case 33:
-	  return readToken_eq_excl(code);
-
-	case 126:
-	  return finishOp(_prefix, 1);
-	}
-
-	return false;
-  }
-
-  function readToken(forceRegexp) {
-	if (!forceRegexp) tokStart = tokPos;
-	else tokPos = tokStart + 1;
-	if (options.locations) tokStartLoc = new line_loc_t;
-	if (forceRegexp) return readRegexp();
-	if (tokPos >= inputLen) return finishToken(_eof);
-
-	var code = input.charCodeAt(tokPos);
-	if (isIdentifierStart(code) || code === 92 ) return readWord();
-
-	var tok = getTokenFromCode(code);
-
-	if (tok === false) {
-	  var ch = String.fromCharCode(code);
-	  if (ch === "\\" || nonASCIIidentifierStart.test(ch)) return readWord();
-	  raise(tokPos, "Unexpected character '" + ch + "'");
-	}
-	return tok;
-  }
-
-  function finishOp(type, size) {
-	var str = input.slice(tokPos, tokPos + size);
-	tokPos += size;
-	finishToken(type, str);
-  }
-
-  function readRegexp() {
-	var content = "", escaped, inClass, start = tokPos;
-	for (;;) {
-	  if (tokPos >= inputLen) raise(start, "Unterminated regular expression");
-	  var ch = input.charAt(tokPos);
-	  if (newline.test(ch)) raise(start, "Unterminated regular expression");
-	  if (!escaped) {
-		if (ch === "[") inClass = true;
-		else if (ch === "]" && inClass) inClass = false;
-		else if (ch === "/" && !inClass) break;
-		escaped = ch === "\\";
-	  } else escaped = false;
-	  ++tokPos;
-	}
-	var content = input.slice(start, tokPos);
-	++tokPos;
-	var mods = readWord1();
-	if (mods && !/^[gmsiy]*$/.test(mods)) raise(start, "Invalid regexp flag");
-	try {
-	  var value = new RegExp(content, mods);
-	} catch (e) {
-	  if (e instanceof SyntaxError) raise(start, e.message);
-	  raise(e);
-	}
-	return finishToken(_regexp, value);
-  }
-
-  function readInt(radix, len) {
-	var start = tokPos, total = 0;
-	for (var i = 0, e = len == null ? Infinity : len; i < e; ++i) {
-	  var code = input.charCodeAt(tokPos), val;
-	  if (code >= 97) val = code - 97 + 10;
-	  else if (code >= 65) val = code - 65 + 10;
-	  else if (code >= 48 && code <= 57) val = code - 48;
-	  else val = Infinity;
-	  if (val >= radix) break;
-	  ++tokPos;
-	  total = total * radix + val;
-	}
-	if (tokPos === start || len != null && tokPos - start !== len) return null;
-
-	return total;
-  }
-
-  function readHexNumber() {
-	tokPos += 2;
-	var val = readInt(16);
-	if (val == null) raise(tokStart + 2, "Expected hexadecimal number");
-	if (isIdentifierStart(input.charCodeAt(tokPos))) raise(tokPos, "Identifier directly after number");
-	return finishToken(_num, val);
-  }
-
-  function readNumber(startsWithDot) {
-	var start = tokPos, isFloat = false, octal = input.charCodeAt(tokPos) === 48;
-	if (!startsWithDot && readInt(10) === null) raise(start, "Invalid number");
-	if (input.charCodeAt(tokPos) === 46) {
-	  ++tokPos;
-	  readInt(10);
-	  isFloat = true;
-	}
-	var next = input.charCodeAt(tokPos);
-	if (next === 69 || next === 101) {
-	  next = input.charCodeAt(++tokPos);
-	  if (next === 43 || next === 45) ++tokPos;
-	  if (readInt(10) === null) raise(start, "Invalid number");
-	  isFloat = true;
-	}
-	if (isIdentifierStart(input.charCodeAt(tokPos))) raise(tokPos, "Identifier directly after number");
-
-	var str = input.slice(start, tokPos), val;
-	if (isFloat) val = parseFloat(str);
-	else if (!octal || str.length === 1) val = parseInt(str, 10);
-	else if (/[89]/.test(str) || strict) raise(start, "Invalid number");
-	else val = parseInt(str, 8);
-	return finishToken(_num, val);
-  }
-
-  function readString(quote) {
-	tokPos++;
-	var out = "";
-	for (;;) {
-	  if (tokPos >= inputLen) raise(tokStart, "Unterminated string constant");
-	  var ch = input.charCodeAt(tokPos);
-	  if (ch === quote) {
-		++tokPos;
-		return finishToken(_string, out);
-	  }
-	  if (ch === 92) {
-		ch = input.charCodeAt(++tokPos);
-		var octal = /^[0-7]+/.exec(input.slice(tokPos, tokPos + 3));
-		if (octal) octal = octal[0];
-		while (octal && parseInt(octal, 8) > 255) octal = octal.slice(0, -1);
-		if (octal === "0") octal = null;
-		++tokPos;
-		if (octal) {
-		  if (strict) raise(tokPos - 2, "Octal literal in strict mode");
-		  out += String.fromCharCode(parseInt(octal, 8));
-		  tokPos += octal.length - 1;
-		} else {
-		  switch (ch) {
-		  case 110: out += "\n"; break;
-		  case 114: out += "\r"; break;
-		  case 120: out += String.fromCharCode(readHexChar(2)); break;
-		  case 117: out += String.fromCharCode(readHexChar(4)); break;
-		  case 85: out += String.fromCharCode(readHexChar(8)); break;
-		  case 116: out += "\t"; break;
-		  case 98: out += "\b"; break;
-		  case 118: out += "\u000b"; break;
-		  case 102: out += "\f"; break;
-		  case 48: out += "\0"; break;
-		  case 13: if (input.charCodeAt(tokPos) === 10) ++tokPos;
-		  case 10:
-			if (options.locations) { tokLineStart = tokPos; ++tokCurLine; }
-			break;
-		  default: out += String.fromCharCode(ch); break;
-		  }
-		}
-	  } else {
-		if (ch === 13 || ch === 10 || ch === 8232 || ch === 8233) raise(tokStart, "Unterminated string constant");
-		out += String.fromCharCode(ch);
-		++tokPos;
-	  }
-	}
-  }
-
-  function readHexChar(len) {
-	var n = readInt(16, len);
-	if (n === null) raise(tokStart, "Bad character escape sequence");
-	return n;
-  }
-
-  var containsEsc;
-
-  function readWord1() {
-	containsEsc = false;
-	var word, first = true, start = tokPos;
-	for (;;) {
-	  var ch = input.charCodeAt(tokPos);
-	  if (isIdentifierChar(ch)) {
-		if (containsEsc) word += input.charAt(tokPos);
-		++tokPos;
-	  } else if (ch === 92) {
-		if (!containsEsc) word = input.slice(start, tokPos);
-		containsEsc = true;
-		if (input.charCodeAt(++tokPos) != 117)
-		  raise(tokPos, "Expecting Unicode escape sequence \\uXXXX");
-		++tokPos;
-		var esc = readHexChar(4);
-		var escStr = String.fromCharCode(esc);
-		if (!escStr) raise(tokPos - 1, "Invalid Unicode escape");
-		if (!(first ? isIdentifierStart(esc) : isIdentifierChar(esc)))
-		  raise(tokPos - 4, "Invalid Unicode escape");
-		word += escStr;
-	  } else {
-		break;
-	  }
-	  first = false;
-	}
-	return containsEsc ? word : input.slice(start, tokPos);
-  }
-
-  function readWord() {
-	var word = readWord1();
-	var type = _name;
-	if (!containsEsc && isKeyword(word))
-	  type = keywordTypes[word];
-	return finishToken(type, word);
-  }
-
-  function next() {
-	lastStart = tokStart;
-	lastEnd = tokEnd;
-	lastEndLoc = tokEndLoc;
-	readToken();
-  }
-
-  function setStrict(strct) {
-	strict = strct;
-	tokPos = tokStart;
-	if (options.locations) {
-	  while (tokPos < tokLineStart) {
-		tokLineStart = input.lastIndexOf("\n", tokLineStart - 2) + 1;
-		--tokCurLine;
-	  }
-	}
-	skipSpace();
-	readToken();
-  }
-
-  function node_t() {
-	this.type = null;
-	this.start = tokStart;
-	this.end = null;
-  }
-
-  function node_loc_t() {
-	this.start = tokStartLoc;
-	this.end = null;
-	if (sourceFile !== null) this.source = sourceFile;
-  }
-
-  function startNode() {
-	var node = new node_t();
-	if (options.locations)
-	  node.loc = new node_loc_t();
-	if (options.directSourceFile)
-	  node.sourceFile = options.directSourceFile;
-	if (options.ranges)
-	  node.range = [tokStart, 0];
-	return node;
-  }
-
-  function startNodeFrom(other) {
-	var node = new node_t();
-	node.start = other.start;
-	if (options.locations) {
-	  node.loc = new node_loc_t();
-	  node.loc.start = other.loc.start;
-	}
-	if (options.ranges)
-	  node.range = [other.range[0], 0];
-
-	return node;
-  }
-
-  function finishNode(node, type) {
-	node.type = type;
-	node.end = lastEnd;
-	if (options.locations)
-	  node.loc.end = lastEndLoc;
-	if (options.ranges)
-	  node.range[1] = lastEnd;
-	return node;
-  }
-
-  function isUseStrict(stmt) {
-	return options.ecmaVersion >= 5 && stmt.type === "ExpressionStatement" &&
-	  stmt.expression.type === "Literal" && stmt.expression.value === "use strict";
-  }
-
-  function eat(type) {
-	if (tokType === type) {
-	  next();
-	  return true;
-	}
-  }
-
-  function canInsertSemicolon() {
-	return !options.strictSemicolons &&
-	  (tokType === _eof || tokType === _braceR || newline.test(input.slice(lastEnd, tokStart)));
-  }
-
-  function semicolon() {
-	if (!eat(_semi) && !canInsertSemicolon()) unexpected();
-  }
-
-  function expect(type) {
-	if (tokType === type) next();
-	else unexpected();
-  }
-
-  function unexpected() {
-	raise(tokStart, "Unexpected token");
-  }
-
-  function checkLVal(expr) {
-	if (expr.type !== "Identifier" && expr.type !== "MemberExpression")
-	  raise(expr.start, "Assigning to rvalue");
-	if (strict && expr.type === "Identifier" && isStrictBadIdWord(expr.name))
-	  raise(expr.start, "Assigning to " + expr.name + " in strict mode");
-  }
-
-  function parseTopLevel(program) {
-	lastStart = lastEnd = tokPos;
-	if (options.locations) lastEndLoc = new line_loc_t;
-	inFunction = strict = null;
-	labels = [];
-	readToken();
-
-	var node = program || startNode(), first = true;
-	if (!program) node.body = [];
-	while (tokType !== _eof) {
-	  var stmt = parseStatement();
-	  node.body.push(stmt);
-	  if (first && isUseStrict(stmt)) setStrict(true);
-	  first = false;
-	}
-	return finishNode(node, "Program");
-  }
-
-  var loopLabel = {kind: "loop"}, switchLabel = {kind: "switch"};
-
-  function parseStatement() {
-	if (tokType === _slash || tokType === _assign && tokVal == "/=")
-	  readToken(true);
-
-	var starttype = tokType, node = startNode();
-
-	switch (starttype) {
-	case _break: case _continue:
-	  next();
-	  var isBreak = starttype === _break;
-	  if (eat(_semi) || canInsertSemicolon()) node.label = null;
-	  else if (tokType !== _name) unexpected();
-	  else {
-		node.label = parseIdent();
-		semicolon();
-	  }
-
-	  for (var i = 0; i < labels.length; ++i) {
-		var lab = labels[i];
-		if (node.label == null || lab.name === node.label.name) {
-		  if (lab.kind != null && (isBreak || lab.kind === "loop")) break;
-		  if (node.label && isBreak) break;
-		}
-	  }
-	  if (i === labels.length) raise(node.start, "Unsyntactic " + starttype.keyword);
-	  return finishNode(node, isBreak ? "BreakStatement" : "ContinueStatement");
-
-	case _debugger:
-	  next();
-	  semicolon();
-	  return finishNode(node, "DebuggerStatement");
-
-	case _do:
-	  next();
-	  labels.push(loopLabel);
-	  node.body = parseStatement();
-	  labels.pop();
-	  expect(_while);
-	  node.test = parseParenExpression();
-	  semicolon();
-	  return finishNode(node, "DoWhileStatement");
-
-	case _for:
-	  next();
-	  labels.push(loopLabel);
-	  expect(_parenL);
-	  if (tokType === _semi) return parseFor(node, null);
-	  if (tokType === _var) {
-		var init = startNode();
-		next();
-		parseVar(init, true);
-		finishNode(init, "VariableDeclaration");
-		if (init.declarations.length === 1 && eat(_in))
-		  return parseForIn(node, init);
-		return parseFor(node, init);
-	  }
-	  var init = parseExpression(false, true);
-	  if (eat(_in)) {checkLVal(init); return parseForIn(node, init);}
-	  return parseFor(node, init);
-
-	case _function:
-	  next();
-	  return parseFunction(node, true);
-
-	case _if:
-	  next();
-	  node.test = parseParenExpression();
-	  node.consequent = parseStatement();
-	  node.alternate = eat(_else) ? parseStatement() : null;
-	  return finishNode(node, "IfStatement");
-
-	case _return:
-	  if (!inFunction && !options.allowReturnOutsideFunction)
-		raise(tokStart, "'return' outside of function");
-	  next();
-
-	  if (eat(_semi) || canInsertSemicolon()) node.argument = null;
-	  else { node.argument = parseExpression(); semicolon(); }
-	  return finishNode(node, "ReturnStatement");
-
-	case _switch:
-	  next();
-	  node.discriminant = parseParenExpression();
-	  node.cases = [];
-	  expect(_braceL);
-	  labels.push(switchLabel);
-
-	  for (var cur, sawDefault; tokType != _braceR;) {
-		if (tokType === _case || tokType === _default) {
-		  var isCase = tokType === _case;
-		  if (cur) finishNode(cur, "SwitchCase");
-		  node.cases.push(cur = startNode());
-		  cur.consequent = [];
-		  next();
-		  if (isCase) cur.test = parseExpression();
-		  else {
-			if (sawDefault) raise(lastStart, "Multiple default clauses"); sawDefault = true;
-			cur.test = null;
-		  }
-		  expect(_colon);
-		} else {
-		  if (!cur) unexpected();
-		  cur.consequent.push(parseStatement());
-		}
-	  }
-	  if (cur) finishNode(cur, "SwitchCase");
-	  next();
-	  labels.pop();
-	  return finishNode(node, "SwitchStatement");
-
-	case _throw:
-	  next();
-	  if (newline.test(input.slice(lastEnd, tokStart)))
-		raise(lastEnd, "Illegal newline after throw");
-	  node.argument = parseExpression();
-	  semicolon();
-	  return finishNode(node, "ThrowStatement");
-
-	case _try:
-	  next();
-	  node.block = parseBlock();
-	  node.handler = null;
-	  if (tokType === _catch) {
-		var clause = startNode();
-		next();
-		expect(_parenL);
-		clause.param = parseIdent();
-		if (strict && isStrictBadIdWord(clause.param.name))
-		  raise(clause.param.start, "Binding " + clause.param.name + " in strict mode");
-		expect(_parenR);
-		clause.guard = null;
-		clause.body = parseBlock();
-		node.handler = finishNode(clause, "CatchClause");
-	  }
-	  node.guardedHandlers = empty;
-	  node.finalizer = eat(_finally) ? parseBlock() : null;
-	  if (!node.handler && !node.finalizer)
-		raise(node.start, "Missing catch or finally clause");
-	  return finishNode(node, "TryStatement");
-
-	case _var:
-	  next();
-	  parseVar(node);
-	  semicolon();
-	  return finishNode(node, "VariableDeclaration");
-
-	case _while:
-	  next();
-	  node.test = parseParenExpression();
-	  labels.push(loopLabel);
-	  node.body = parseStatement();
-	  labels.pop();
-	  return finishNode(node, "WhileStatement");
-
-	case _with:
-	  if (strict) raise(tokStart, "'with' in strict mode");
-	  next();
-	  node.object = parseParenExpression();
-	  node.body = parseStatement();
-	  return finishNode(node, "WithStatement");
-
-	case _braceL:
-	  return parseBlock();
-
-	case _semi:
-	  next();
-	  return finishNode(node, "EmptyStatement");
-
-	default:
-	  var maybeName = tokVal, expr = parseExpression();
-	  if (starttype === _name && expr.type === "Identifier" && eat(_colon)) {
-		for (var i = 0; i < labels.length; ++i)
-		  if (labels[i].name === maybeName) raise(expr.start, "Label '" + maybeName + "' is already declared");
-		var kind = tokType.isLoop ? "loop" : tokType === _switch ? "switch" : null;
-		labels.push({name: maybeName, kind: kind});
-		node.body = parseStatement();
-		labels.pop();
-		node.label = expr;
-		return finishNode(node, "LabeledStatement");
-	  } else {
-		node.expression = expr;
-		semicolon();
-		return finishNode(node, "ExpressionStatement");
-	  }
-	}
-  }
-
-  function parseParenExpression() {
-	expect(_parenL);
-	var val = parseExpression();
-	expect(_parenR);
-	return val;
-  }
-
-  function parseBlock(allowStrict) {
-	var node = startNode(), first = true, strict = false, oldStrict;
-	node.body = [];
-	expect(_braceL);
-	while (!eat(_braceR)) {
-	  var stmt = parseStatement();
-	  node.body.push(stmt);
-	  if (first && allowStrict && isUseStrict(stmt)) {
-		oldStrict = strict;
-		setStrict(strict = true);
-	  }
-	  first = false;
-	}
-	if (strict && !oldStrict) setStrict(false);
-	return finishNode(node, "BlockStatement");
-  }
-
-  function parseFor(node, init) {
-	node.init = init;
-	expect(_semi);
-	node.test = tokType === _semi ? null : parseExpression();
-	expect(_semi);
-	node.update = tokType === _parenR ? null : parseExpression();
-	expect(_parenR);
-	node.body = parseStatement();
-	labels.pop();
-	return finishNode(node, "ForStatement");
-  }
-
-  function parseForIn(node, init) {
-	node.left = init;
-	node.right = parseExpression();
-	expect(_parenR);
-	node.body = parseStatement();
-	labels.pop();
-	return finishNode(node, "ForInStatement");
-  }
-
-  function parseVar(node, noIn) {
-	node.declarations = [];
-	node.kind = "var";
-	for (;;) {
-	  var decl = startNode();
-	  decl.id = parseIdent();
-	  if (strict && isStrictBadIdWord(decl.id.name))
-		raise(decl.id.start, "Binding " + decl.id.name + " in strict mode");
-	  decl.init = eat(_eq) ? parseExpression(true, noIn) : null;
-	  node.declarations.push(finishNode(decl, "VariableDeclarator"));
-	  if (!eat(_comma)) break;
-	}
-	return node;
-  }
-
-  function parseExpression(noComma, noIn) {
-	var expr = parseMaybeAssign(noIn);
-	if (!noComma && tokType === _comma) {
-	  var node = startNodeFrom(expr);
-	  node.expressions = [expr];
-	  while (eat(_comma)) node.expressions.push(parseMaybeAssign(noIn));
-	  return finishNode(node, "SequenceExpression");
-	}
-	return expr;
-  }
-
-  function parseMaybeAssign(noIn) {
-	var left = parseMaybeConditional(noIn);
-	if (tokType.isAssign) {
-	  var node = startNodeFrom(left);
-	  node.operator = tokVal;
-	  node.left = left;
-	  next();
-	  node.right = parseMaybeAssign(noIn);
-	  checkLVal(left);
-	  return finishNode(node, "AssignmentExpression");
-	}
-	return left;
-  }
-
-  function parseMaybeConditional(noIn) {
-	var expr = parseExprOps(noIn);
-	if (eat(_question)) {
-	  var node = startNodeFrom(expr);
-	  node.test = expr;
-	  node.consequent = parseExpression(true);
-	  expect(_colon);
-	  node.alternate = parseExpression(true, noIn);
-	  return finishNode(node, "ConditionalExpression");
-	}
-	return expr;
-  }
-
-  function parseExprOps(noIn) {
-	return parseExprOp(parseMaybeUnary(), -1, noIn);
-  }
-
-  function parseExprOp(left, minPrec, noIn) {
-	var prec = tokType.binop;
-	if (prec != null && (!noIn || tokType !== _in)) {
-	  if (prec > minPrec) {
-		var node = startNodeFrom(left);
-		node.left = left;
-		node.operator = tokVal;
-		var op = tokType;
-		next();
-		node.right = parseExprOp(parseMaybeUnary(), prec, noIn);
-		var exprNode = finishNode(node, (op === _logicalOR || op === _logicalAND) ? "LogicalExpression" : "BinaryExpression");
-		return parseExprOp(exprNode, minPrec, noIn);
-	  }
-	}
-	return left;
-  }
-
-  function parseMaybeUnary() {
-	if (tokType.prefix) {
-	  var node = startNode(), update = tokType.isUpdate;
-	  node.operator = tokVal;
-	  node.prefix = true;
-	  tokRegexpAllowed = true;
-	  next();
-	  node.argument = parseMaybeUnary();
-	  if (update) checkLVal(node.argument);
-	  else if (strict && node.operator === "delete" &&
-			   node.argument.type === "Identifier")
-		raise(node.start, "Deleting local variable in strict mode");
-	  return finishNode(node, update ? "UpdateExpression" : "UnaryExpression");
-	}
-	var expr = parseExprSubscripts();
-	while (tokType.postfix && !canInsertSemicolon()) {
-	  var node = startNodeFrom(expr);
-	  node.operator = tokVal;
-	  node.prefix = false;
-	  node.argument = expr;
-	  checkLVal(expr);
-	  next();
-	  expr = finishNode(node, "UpdateExpression");
-	}
-	return expr;
-  }
-
-  function parseExprSubscripts() {
-	return parseSubscripts(parseExprAtom());
-  }
-
-  function parseSubscripts(base, noCalls) {
-	if (eat(_dot)) {
-	  var node = startNodeFrom(base);
-	  node.object = base;
-	  node.property = parseIdent(true);
-	  node.computed = false;
-	  return parseSubscripts(finishNode(node, "MemberExpression"), noCalls);
-	} else if (eat(_bracketL)) {
-	  var node = startNodeFrom(base);
-	  node.object = base;
-	  node.property = parseExpression();
-	  node.computed = true;
-	  expect(_bracketR);
-	  return parseSubscripts(finishNode(node, "MemberExpression"), noCalls);
-	} else if (!noCalls && eat(_parenL)) {
-	  var node = startNodeFrom(base);
-	  node.callee = base;
-	  node.arguments = parseExprList(_parenR, false);
-	  return parseSubscripts(finishNode(node, "CallExpression"), noCalls);
-	} else return base;
-  }
-
-  function parseExprAtom() {
-	switch (tokType) {
-	case _this:
-	  var node = startNode();
-	  next();
-	  return finishNode(node, "ThisExpression");
-	case _name:
-	  return parseIdent();
-	case _num: case _string: case _regexp:
-	  var node = startNode();
-	  node.value = tokVal;
-	  node.raw = input.slice(tokStart, tokEnd);
-	  next();
-	  return finishNode(node, "Literal");
-
-	case _null: case _true: case _false:
-	  var node = startNode();
-	  node.value = tokType.atomValue;
-	  node.raw = tokType.keyword;
-	  next();
-	  return finishNode(node, "Literal");
-
-	case _parenL:
-	  var tokStartLoc1 = tokStartLoc, tokStart1 = tokStart;
-	  next();
-	  var val = parseExpression();
-	  val.start = tokStart1;
-	  val.end = tokEnd;
-	  if (options.locations) {
-		val.loc.start = tokStartLoc1;
-		val.loc.end = tokEndLoc;
-	  }
-	  if (options.ranges)
-		val.range = [tokStart1, tokEnd];
-	  expect(_parenR);
-	  return val;
-
-	case _bracketL:
-	  var node = startNode();
-	  next();
-	  node.elements = parseExprList(_bracketR, true, true);
-	  return finishNode(node, "ArrayExpression");
-
-	case _braceL:
-	  return parseObj();
-
-	case _function:
-	  var node = startNode();
-	  next();
-	  return parseFunction(node, false);
-
-	case _new:
-	  return parseNew();
-
-	default:
-	  unexpected();
-	}
-  }
-
-  function parseNew() {
-	var node = startNode();
-	next();
-	node.callee = parseSubscripts(parseExprAtom(), true);
-	if (eat(_parenL)) node.arguments = parseExprList(_parenR, false);
-	else node.arguments = empty;
-	return finishNode(node, "NewExpression");
-  }
-
-  function parseObj() {
-	var node = startNode(), first = true, sawGetSet = false;
-	node.properties = [];
-	next();
-	while (!eat(_braceR)) {
-	  if (!first) {
-		expect(_comma);
-		if (options.allowTrailingCommas && eat(_braceR)) break;
-	  } else first = false;
-
-	  var prop = {key: parsePropertyName()}, isGetSet = false, kind;
-	  if (eat(_colon)) {
-		prop.value = parseExpression(true);
-		kind = prop.kind = "init";
-	  } else if (options.ecmaVersion >= 5 && prop.key.type === "Identifier" &&
-				 (prop.key.name === "get" || prop.key.name === "set")) {
-		isGetSet = sawGetSet = true;
-		kind = prop.kind = prop.key.name;
-		prop.key = parsePropertyName();
-		if (tokType !== _parenL) unexpected();
-		prop.value = parseFunction(startNode(), false);
-	  } else unexpected();
-
-	  if (prop.key.type === "Identifier" && (strict || sawGetSet)) {
-		for (var i = 0; i < node.properties.length; ++i) {
-		  var other = node.properties[i];
-		  if (other.key.name === prop.key.name) {
-			var conflict = kind == other.kind || isGetSet && other.kind === "init" ||
-			  kind === "init" && (other.kind === "get" || other.kind === "set");
-			if (conflict && !strict && kind === "init" && other.kind === "init") conflict = false;
-			if (conflict) raise(prop.key.start, "Redefinition of property");
-		  }
-		}
-	  }
-	  node.properties.push(prop);
-	}
-	return finishNode(node, "ObjectExpression");
-  }
-
-  function parsePropertyName() {
-	if (tokType === _num || tokType === _string) return parseExprAtom();
-	return parseIdent(true);
-  }
-
-  function parseFunction(node, isStatement) {
-	if (tokType === _name) node.id = parseIdent();
-	else if (isStatement) unexpected();
-	else node.id = null;
-	node.params = [];
-	var first = true;
-	expect(_parenL);
-	while (!eat(_parenR)) {
-	  if (!first) expect(_comma); else first = false;
-	  node.params.push(parseIdent());
-	}
-
-	var oldInFunc = inFunction, oldLabels = labels;
-	inFunction = true; labels = [];
-	node.body = parseBlock(true);
-	inFunction = oldInFunc; labels = oldLabels;
-
-	if (strict || node.body.body.length && isUseStrict(node.body.body[0])) {
-	  for (var i = node.id ? -1 : 0; i < node.params.length; ++i) {
-		var id = i < 0 ? node.id : node.params[i];
-		if (isStrictReservedWord(id.name) || isStrictBadIdWord(id.name))
-		  raise(id.start, "Defining '" + id.name + "' in strict mode");
-		if (i >= 0) for (var j = 0; j < i; ++j) if (id.name === node.params[j].name)
-		  raise(id.start, "Argument name clash in strict mode");
-	  }
-	}
-
-	return finishNode(node, isStatement ? "FunctionDeclaration" : "FunctionExpression");
-  }
-
-  function parseExprList(close, allowTrailingComma, allowEmpty) {
-	var elts = [], first = true;
-	while (!eat(close)) {
-	  if (!first) {
-		expect(_comma);
-		if (allowTrailingComma && options.allowTrailingCommas && eat(close)) break;
-	  } else first = false;
-
-	  if (allowEmpty && tokType === _comma) elts.push(null);
-	  else elts.push(parseExpression(true));
-	}
-	return elts;
-  }
-
-  function parseIdent(liberal) {
-	var node = startNode();
-	if (liberal && options.forbidReserved == "everywhere") liberal = false;
-	if (tokType === _name) {
-	  if (!liberal &&
-		  (options.forbidReserved &&
-		   (options.ecmaVersion === 3 ? isReservedWord3 : isReservedWord5)(tokVal) ||
-		   strict && isStrictReservedWord(tokVal)) &&
-		  input.slice(tokStart, tokEnd).indexOf("\\") == -1)
-		raise(tokStart, "The keyword '" + tokVal + "' is reserved");
-	  node.name = tokVal;
-	} else if (liberal && tokType.keyword) {
-	  node.name = tokType.keyword;
-	} else {
-	  unexpected();
-	}
-	tokRegexpAllowed = false;
-	next();
-	return finishNode(node, "Identifier");
-  }
-
-});
-
-		if (!acorn.version)
-			acorn = null;
-	}
-
-	function parse(code, options) {
-		return (global.acorn || acorn).parse(code, options);
-	}
-
-	var binaryOperators = {
-		'+': '__add',
-		'-': '__subtract',
-		'*': '__multiply',
-		'/': '__divide',
-		'%': '__modulo',
-		'==': '__equals',
-		'!=': '__equals'
-	};
-
-	var unaryOperators = {
-		'-': '__negate',
-		'+': '__self'
-	};
-
-	var fields = Base.each(
-		['add', 'subtract', 'multiply', 'divide', 'modulo', 'equals', 'negate'],
-		function(name) {
-			this['__' + name] = '#' + name;
-		},
-		{
-			__self: function() {
-				return this;
-			}
-		}
-	);
-	Point.inject(fields);
-	Size.inject(fields);
-	Color.inject(fields);
-
-	function __$__(left, operator, right) {
-		var handler = binaryOperators[operator];
-		if (left && left[handler]) {
-			var res = left[handler](right);
-			return operator === '!=' ? !res : res;
-		}
-		switch (operator) {
-		case '+': return left + right;
-		case '-': return left - right;
-		case '*': return left * right;
-		case '/': return left / right;
-		case '%': return left % right;
-		case '==': return left == right;
-		case '!=': return left != right;
-		}
-	}
-
-	function $__(operator, value) {
-		var handler = unaryOperators[operator];
-		if (value && value[handler])
-			return value[handler]();
-		switch (operator) {
-		case '+': return +value;
-		case '-': return -value;
-		}
-	}
-
-	function compile(code, options) {
-		if (!code)
-			return '';
-		options = options || {};
-
-		var insertions = [];
-
-		function getOffset(offset) {
-			for (var i = 0, l = insertions.length; i < l; i++) {
-				var insertion = insertions[i];
-				if (insertion[0] >= offset)
-					break;
-				offset += insertion[1];
-			}
-			return offset;
-		}
-
-		function getCode(node) {
-			return code.substring(getOffset(node.range[0]),
-					getOffset(node.range[1]));
-		}
-
-		function getBetween(left, right) {
-			return code.substring(getOffset(left.range[1]),
-					getOffset(right.range[0]));
-		}
-
-		function replaceCode(node, str) {
-			var start = getOffset(node.range[0]),
-				end = getOffset(node.range[1]),
-				insert = 0;
-			for (var i = insertions.length - 1; i >= 0; i--) {
-				if (start > insertions[i][0]) {
-					insert = i + 1;
-					break;
-				}
-			}
-			insertions.splice(insert, 0, [start, str.length - end + start]);
-			code = code.substring(0, start) + str + code.substring(end);
-		}
-
-		function walkAST(node, parent) {
-			if (!node)
-				return;
-			for (var key in node) {
-				if (key === 'range' || key === 'loc')
-					continue;
-				var value = node[key];
-				if (Array.isArray(value)) {
-					for (var i = 0, l = value.length; i < l; i++)
-						walkAST(value[i], node);
-				} else if (value && typeof value === 'object') {
-					walkAST(value, node);
-				}
-			}
-			switch (node.type) {
-			case 'UnaryExpression':
-				if (node.operator in unaryOperators
-						&& node.argument.type !== 'Literal') {
-					var arg = getCode(node.argument);
-					replaceCode(node, '$__("' + node.operator + '", '
-							+ arg + ')');
-				}
-				break;
-			case 'BinaryExpression':
-				if (node.operator in binaryOperators
-						&& node.left.type !== 'Literal') {
-					var left = getCode(node.left),
-						right = getCode(node.right),
-						between = getBetween(node.left, node.right),
-						operator = node.operator;
-					replaceCode(node, '__$__(' + left + ','
-							+ between.replace(new RegExp('\\' + operator),
-								'"' + operator + '"')
-							+ ', ' + right + ')');
-				}
-				break;
-			case 'UpdateExpression':
-			case 'AssignmentExpression':
-				var parentType = parent && parent.type;
-				if (!(
-						parentType === 'ForStatement'
-						|| parentType === 'BinaryExpression'
-							&& /^[=!<>]/.test(parent.operator)
-						|| parentType === 'MemberExpression' && parent.computed
-				)) {
-					if (node.type === 'UpdateExpression') {
-						var arg = getCode(node.argument),
-							exp = '__$__(' + arg + ', "' + node.operator[0]
-									+ '", 1)',
-							str = arg + ' = ' + exp;
-						if (!node.prefix
-								&& (parentType === 'AssignmentExpression'
-									|| parentType === 'VariableDeclarator')) {
-							if (getCode(parent.left || parent.id) === arg)
-								str = exp;
-							str = arg + '; ' + str;
-						}
-						replaceCode(node, str);
-					} else {
-						if (/^.=$/.test(node.operator)
-								&& node.left.type !== 'Literal') {
-							var left = getCode(node.left),
-								right = getCode(node.right),
-								exp = left + ' = __$__(' + left + ', "'
-									+ node.operator[0] + '", ' + right + ')';
-							replaceCode(node, /^\(.*\)$/.test(getCode(node))
-									? '(' + exp + ')' : exp);
-						}
-					}
-				}
-				break;
-			}
-		}
-
-		function encodeVLQ(value) {
-			var res = '',
-				base64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-			value = (Math.abs(value) << 1) + (value < 0 ? 1 : 0);
-			while (value || !res) {
-				var next = value & (32 - 1);
-				value >>= 5;
-				if (value)
-					next |= 32;
-				res += base64[next];
-			}
-			return res;
-		}
-
-		var url = options.url || '',
-			agent = paper.agent,
-			version = agent.versionNumber,
-			offsetCode = false,
-			sourceMaps = options.sourceMaps,
-			source = options.source || code,
-			lineBreaks = /\r\n|\n|\r/mg,
-			offset = options.offset || 0,
-			map;
-		if (sourceMaps && (agent.chrome && version >= 30
-				|| agent.webkit && version >= 537.76
-				|| agent.firefox && version >= 23
-				|| agent.node)) {
-			if (agent.node) {
-				offset -= 2;
-			} else if (window && url && !window.location.href.indexOf(url)) {
-				var html = document.getElementsByTagName('html')[0].innerHTML;
-				offset = html.substr(0, html.indexOf(code) + 1).match(
-						lineBreaks).length + 1;
-			}
-			offsetCode = offset > 0 && !(
-					agent.chrome && version >= 36 ||
-					agent.safari && version >= 600 ||
-					agent.firefox && version >= 40 ||
-					agent.node);
-			var mappings = ['AA' + encodeVLQ(offsetCode ? 0 : offset) + 'A'];
-			mappings.length = (code.match(lineBreaks) || []).length + 1
-					+ (offsetCode ? offset : 0);
-			map = {
-				version: 3,
-				file: url,
-				names:[],
-				mappings: mappings.join(';AACA'),
-				sourceRoot: '',
-				sources: [url],
-				sourcesContent: [source]
-			};
-		}
-		walkAST(parse(code, { ranges: true, preserveParens: true }));
-		if (map) {
-			if (offsetCode) {
-				code = new Array(offset + 1).join('\n') + code;
-			}
-			if (/^(inline|both)$/.test(sourceMaps)) {
-				code += "\n//# sourceMappingURL=data:application/json;base64,"
-						+ self.btoa(unescape(encodeURIComponent(
-							JSON.stringify(map))));
-			}
-			code += "\n//# sourceURL=" + (url || 'paperscript');
-		}
-		return {
-			url: url,
-			source: source,
-			code: code,
-			map: map
-		};
-	}
-
-	function execute(code, scope, options) {
-		paper = scope;
-		var view = scope.getView(),
-			tool = /\btool\.\w+|\s+on(?:Key|Mouse)(?:Up|Down|Move|Drag)\b/
-					.test(code) && !/\bnew\s+Tool\b/.test(code)
-						? new Tool() : null,
-			toolHandlers = tool ? tool._events : [],
-			handlers = ['onFrame', 'onResize'].concat(toolHandlers),
-			params = [],
-			args = [],
-			func,
-			compiled = typeof code === 'object' ? code : compile(code, options);
-		code = compiled.code;
-		function expose(scope, hidden) {
-			for (var key in scope) {
-				if ((hidden || !/^_/.test(key)) && new RegExp('([\\b\\s\\W]|^)'
-						+ key.replace(/\$/g, '\\$') + '\\b').test(code)) {
-					params.push(key);
-					args.push(scope[key]);
-				}
-			}
-		}
-		expose({ __$__: __$__, $__: $__, paper: scope, view: view, tool: tool },
-				true);
-		expose(scope);
-		handlers = Base.each(handlers, function(key) {
-			if (new RegExp('\\s+' + key + '\\b').test(code)) {
-				params.push(key);
-				this.push(key + ': ' + key);
-			}
-		}, []).join(', ');
-		if (handlers)
-			code += '\nreturn { ' + handlers + ' };';
-		var agent = paper.agent;
-		if (document && (agent.chrome
-				|| agent.firefox && agent.versionNumber < 40)) {
-			var script = document.createElement('script'),
-				head = document.head || document.getElementsByTagName('head')[0];
-			if (agent.firefox)
-				code = '\n' + code;
-			script.appendChild(document.createTextNode(
-				'paper._execute = function(' + params + ') {' + code + '\n}'
-			));
-			head.appendChild(script);
-			func = paper._execute;
-			delete paper._execute;
-			head.removeChild(script);
-		} else {
-			func = Function(params, code);
-		}
-		var res = func.apply(scope, args) || {};
-		Base.each(toolHandlers, function(key) {
-			var value = res[key];
-			if (value)
-				tool[key] = value;
-		});
-		if (view) {
-			if (res.onResize)
-				view.setOnResize(res.onResize);
-			view.emit('resize', {
-				size: view.size,
-				delta: new Point()
-			});
-			if (res.onFrame)
-				view.setOnFrame(res.onFrame);
-			view.requestUpdate();
-		}
-		return compiled;
-	}
-
-	function loadScript(script) {
-		if (/^text\/(?:x-|)paperscript$/.test(script.type)
-				&& PaperScope.getAttribute(script, 'ignore') !== 'true') {
-			var canvasId = PaperScope.getAttribute(script, 'canvas'),
-				canvas = document.getElementById(canvasId),
-				src = script.src || script.getAttribute('data-src'),
-				async = PaperScope.hasAttribute(script, 'async'),
-				scopeAttribute = 'data-paper-scope';
-			if (!canvas)
-				throw new Error('Unable to find canvas with id "'
-						+ canvasId + '"');
-			var scope = PaperScope.get(canvas.getAttribute(scopeAttribute))
-						|| new PaperScope().setup(canvas);
-			canvas.setAttribute(scopeAttribute, scope._id);
-			if (src) {
-				Http.request({
-					url: src,
-					async: async,
-					mimeType: 'text/plain',
-					onLoad: function(code) {
-						execute(code, scope, src);
-					}
-				});
-			} else {
-				execute(script.innerHTML, scope, script.baseURI);
-			}
-			script.setAttribute('data-paper-ignore', 'true');
-			return scope;
-		}
-	}
-
-	function loadAll() {
-		Base.each(document && document.getElementsByTagName('script'),
-				loadScript);
-	}
-
-	function load(script) {
-		return script ? loadScript(script) : loadAll();
-	}
-
-	if (window) {
-		if (document.readyState === 'complete') {
-			setTimeout(loadAll);
-		} else {
-			DomEvent.add(window, { load: loadAll });
-		}
-	}
-
-	return {
-		compile: compile,
-		execute: execute,
-		load: load,
-		parse: parse
-	};
-
-}.call(this);
-
-paper = new (PaperScope.inject(Base.exports, {
+var paper = new (PaperScope.inject(Base.exports, {
 	Base: Base,
 	Numerical: Numerical,
 	Key: Key,

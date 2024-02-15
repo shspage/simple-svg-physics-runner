@@ -1,7 +1,7 @@
 /*
 simple-svg-physics-runner
 
-2024.02.13, v.1.0.2
+2024.02.15, v.1.1.0
 
 * Copyright(c) 2018 Hiroyuki Sato
   https://github.com/shspage/simple-svg-physics-runner
@@ -283,9 +283,14 @@ required libraries (and the version tested with)
 
     function extractItems(children, items, parent_name){
         var grp, grp_type;
-        if(parent_name && parent_name.startsWith("chain")){
-            grp = Composite.create();
-            grp_type = "chain";
+        if(parent_name){
+            if(parent_name.startsWith("chain")){
+                grp = Composite.create();
+                grp_type = "chain";
+            } else if(parent_name.startsWith("bridge")){
+                grp = Composite.create();
+                grp_type = "bridge";
+            }
         }
 
         for(var i = children.length - 1; i >= 0; i--){
@@ -312,7 +317,7 @@ required libraries (and the version tested with)
                     }
                 }
 
-                if(grp_type == "chain"){
+                if(grp_type == "chain" || grp_type == "bridge"){
                     Composite.addBody(grp, body);
                 } else {
                     items.push(body);
@@ -326,22 +331,57 @@ required libraries (and the version tested with)
         }
 
         if(grp_type == "chain"){
-            // sort bodies from top to bottom. the pivot of chain is placed at the top body.
-            if(grp.bodies.length > 1){
-                grp.bodies.sort(function(a,b){ return a.position.y - b.position.y; });
-                Composites.chain(grp, 0, 0.5, 0, -0.5, { stiffness: 1, length: 1, render: { visible:false } });    
-            }
-            var b = grp.bodies[0];
-            var bHeight = b.bounds.max.y - b.bounds.min.y
-            Composite.add(grp, Constraint.create({
-                bodyB: b,
-                pointB: { x: 0, y: -bHeight / 2 },
-                pointA: { x: b.position.x, y: b.position.y - bHeight / 2},
-                stiffness: 1,
-                render: { visible:false }
-            }));    
+            createChain(grp);
             items.push(grp);
+        } else if(grp_type == "bridge"){
+            createBridge(grp);
+            items.push(grp);           
         }
+    }
+
+    function createChain(grp){
+        // sort bodies from top to bottom. the pivot of chain is placed at the top body.
+        if(grp.bodies.length > 1){
+            grp.bodies.sort(function(a,b){ return a.position.y - b.position.y; });
+            Composites.chain(grp, 0, 0.5, 0, -0.5, { stiffness: 0.99, length: 1, render: { visible:false } });    
+        }
+        var b = grp.bodies[0];
+        var bHeight = b.bounds.max.y - b.bounds.min.y
+        Composite.add(grp, Constraint.create({
+            bodyB: b,
+            pointB: { x: 0, y: -bHeight / 2 },
+            pointA: { x: b.position.x, y: b.position.y - bHeight / 2},
+            stiffness: 1,
+            render: { visible:false }
+        }));
+    }
+
+    function createBridge(grp){
+        // sort bodies horizontaly. the pivot of chain is placed at both ends of bodies.
+        if(grp.bodies.length > 1){
+            grp.bodies.sort(function(a,b){ return a.position.x - b.position.x; });
+            Composites.chain(grp, 0.5, 0, -0.5, 0, { stiffness: 0.99, length: 0.0001, render: { visible:false } });    
+        }
+        var b = grp.bodies[0];
+        var bWidth = b.bounds.max.x - b.bounds.min.x
+        Composite.add(grp, Constraint.create({
+            bodyB: b,
+            pointB: { x: -bWidth / 2, y: 0 },
+            pointA: { x: b.position.x - bWidth / 2, y: b.position.y },
+            length: 2,
+            stiffness: 0.9,
+            render: { visible:false }
+        }));
+        b = grp.bodies[grp.bodies.length - 1];
+        bWidth = b.bounds.max.x - b.bounds.min.x
+        Composite.add(grp, Constraint.create({
+            bodyB: b,
+            pointB: { x: bWidth / 2, y: 0 },
+            pointA: { x: b.position.x + bWidth / 2, y: b.position.y },
+            length: 2,
+            stiffness: 0.9,
+            render: { visible:false }
+        }));
     }
 
     function isCircle(item){

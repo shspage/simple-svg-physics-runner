@@ -31,6 +31,7 @@
 
 * Illustrator: If there's a group with a name that starts with "chain", the objects in the group are chained vertically, anchored at the top.   
 video - https://twitter.com/shspage/status/1757720353638674790
+* Similarly, if it starts with "bridge", the ends are fixed and connected horizontally.
 
 ### Try using
 https://shspage.github.io/simple-svg-physics-runner/
@@ -59,6 +60,11 @@ in simple-svg-physics-runner.js.
 
 
 ### ChangeLog
+#### v.1.1.0
+* updated required libraries.
+* removed canvas scrollbars.
+* Illustrator: Added a function to connect objects in the horizontal direction when the group name starts with "bridge".
+
 #### v.1.0.2
 * Added a setting of upper limit of RGB values ​​to be considered as black. (AS_BLACK_THRESHOLD_RGB)
 * Illustrator: Added a function to connect objects in the vertical direction when the group name starts with "chain".
@@ -83,18 +89,18 @@ in simple-svg-physics-runner.js.
   libraries and their respective licenses below.
 
 #### required libraries (including in this repo)
-* jQuery (v1.11.0)  
+* jQuery (v3.7.1)  
   License MIT  
-  (c) 2005, 2014 jQuery Foundation, Inc. | jquery.org/license
+  (c) OpenJS Foundation and other contributors | jquery.org/license
 
-* matter-js (0.14.2) http://brm.io/matter-js/  
+* matter-js (0.19.0) http://brm.io/matter-js/  
   License MIT  
   Copyright (c) Liam Brummitt and contributors.
 
-* Paper.js (v0.11.5)  http://paperjs.org/  
+* Paper.js (v0.12.17)  http://paperjs.org/  
   License MIT  
-  Copyright (c) 2011 - 2016, Juerg Lehni & Jonathan Puckey  
-  http://scratchdisk.com/ & http://jonathanpuckey.com/
+  Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey  
+  http://juerglehni.com/ & https://puckey.studio/
 
 * poly-decomp.js (https://github.com/schteppe/poly-decomp.js)  
   License MIT  

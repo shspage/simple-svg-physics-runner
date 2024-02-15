@@ -2,8 +2,8 @@
  * Paper.js - The Swiss Army Knife of Vector Graphics Scripting.
  * http://paperjs.org/
  *
- * Copyright (c) 2011 - 2016, Juerg Lehni & Jonathan Puckey
- * http://scratchdisk.com/ & http://jonathanpuckey.com/
+ * Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey
+ * http://juerglehni.com/ & https://puckey.studio/
  *
  * Distributed under the MIT license. See LICENSE file for details.
  *
@@ -17,7 +17,7 @@ var path = require('path');
 // Determine the name by which name the module was required (either 'paper',
 // 'paper-jsdom' or 'paper-jsdom-canvas'), and use this to determine if error
 // exceptions should be thrown or if loading should fail silently.
-var parent = module.parent.parent,
+var parent = module.parent && module.parent.parent,
     requireName = parent && path.basename(path.dirname(parent.filename));
 requireName = /^paper/.test(requireName) ? requireName : 'paper';
 
@@ -37,15 +37,13 @@ try {
 if (jsdom) {
     // Create our document and window objects through jsdom.
     /* global document:true, window:true */
-    var document = jsdom.jsdom('<html><body></body></html>', {
+    var document = new jsdom.JSDOM('<html><body></body></html>', {
         // Use the current working directory as the document's origin, so
         // requests to local files work correctly with CORS.
         url: 'file://' + process.cwd() + '/',
-        features: {
-            FetchExternalResources: ['img', 'script']
-        }
+        resources: 'usable'
     });
-    self = document.defaultView;
+    self = document.window;
     require('./canvas.js')(self, requireName);
     require('./xml.js')(self);
 } else {

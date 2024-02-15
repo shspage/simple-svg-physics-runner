@@ -9,6 +9,7 @@ body {
 canvas
 {
 	background-color:#ccc;
+	display:block;
 }
 canvas[resize] {
     width: 100%;

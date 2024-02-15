@@ -2,8 +2,8 @@
  * Paper.js - The Swiss Army Knife of Vector Graphics Scripting.
  * http://paperjs.org/
  *
- * Copyright (c) 2011 - 2016, Juerg Lehni & Jonathan Puckey
- * http://scratchdisk.com/ & http://jonathanpuckey.com/
+ * Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey
+ * http://juerglehni.com/ & https://puckey.studio/
  *
  * Distributed under the MIT license. See LICENSE file for details.
  *
@@ -18,8 +18,8 @@
 module.exports = function(self, requireName) {
     var Canvas;
     try {
-        Canvas = require('canvas');
-    } catch(e) {
+        Canvas = require('canvas').Canvas;
+    } catch(error) {
         // Remove `self.window`, so we still have the global `self` reference,
         // but no `window` object:
         // - On the browser, this corresponds to a worker context.

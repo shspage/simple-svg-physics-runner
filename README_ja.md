@@ -35,6 +35,7 @@
 
 * Illustrator: 「chain」で始まる名前のグループがある場合、グループ内のオブジェクトは垂直方向に連結され、上部で固定されます。  
 video - https://twitter.com/shspage/status/1757720353638674790
+* 同様に「bridge」で始まる場合は左右方向に連結され、両橋が固定されます。
 
 ### 使ってみる
 https://shspage.github.io/simple-svg-physics-runner/
@@ -58,6 +59,11 @@ https://shspage.github.io/simple-svg-physics-runner/
 
 
 ### 変更履歴
+#### v.1.1.0
+* 必須ライブラリを更新しました。
+* canvasからスクロールバーを取り除きました。
+* Illustrator: グループ名が"bridge"で始まる場合に、中のオブジェクトを左右方向に連結する機能を追加。
+
 #### v.1.0.2
 * RGB値が全て設定値以下の場合黒と見なす処理を追加。(AS_BLACK_THRESHOLD_RGB)
 * Illustrator: グループ名が"chain"で始まる場合に、中のオブジェクトを上下方向に連結する機能を追加。
@@ -82,18 +88,18 @@ https://shspage.github.io/simple-svg-physics-runner/
   libraries and their respective licenses below.
 
 #### required libraries (including in this repo)
-* jQuery (v1.11.0)  
+* jQuery (v3.7.1)  
   License MIT  
-  (c) 2005, 2014 jQuery Foundation, Inc. | jquery.org/license
+  (c) OpenJS Foundation and other contributors | jquery.org/license
 
-* matter-js (0.14.2) http://brm.io/matter-js/  
+* matter-js (0.19.0) http://brm.io/matter-js/  
   License MIT  
   Copyright (c) Liam Brummitt and contributors.
 
-* Paper.js (v0.11.5)  http://paperjs.org/  
+* Paper.js (v0.12.17)  http://paperjs.org/  
   License MIT  
-  Copyright (c) 2011 - 2016, Juerg Lehni & Jonathan Puckey  
-  http://scratchdisk.com/ & http://jonathanpuckey.com/
+  Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey  
+  http://juerglehni.com/ & https://puckey.studio/
 
 * poly-decomp.js (https://github.com/schteppe/poly-decomp.js)  
   License MIT  
