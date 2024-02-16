@@ -1,7 +1,7 @@
 /*
 simple-svg-physics-runner
 
-2024.02.15, v.1.1.0
+2024.02.16, v.1.1.1
 
 * Copyright(c) 2018 Hiroyuki Sato
   https://github.com/shspage/simple-svg-physics-runner
@@ -13,21 +13,21 @@ simple-svg-physics-runner
   libraries and their respective licenses below.
 -------------------------------------------
 required libraries (and the version tested with)
-* jQuery (v1.11.0)
-  License MIT
-  (c) 2005, 2014 jQuery Foundation, Inc. | jquery.org/license
+* jQuery (v3.7.1)  
+  License MIT  
+  (c) OpenJS Foundation and other contributors | jquery.org/license
 
-* matter-js (0.14.2) http://brm.io/matter-js/
-  License MIT
+* matter-js (0.19.0) http://brm.io/matter-js/  
+  License MIT  
   Copyright (c) Liam Brummitt and contributors.
 
-* Paper.js (v0.11.5)  http://paperjs.org/
-  License MIT
-  Copyright (c) 2011 - 2016, Juerg Lehni & Jonathan Puckey
-  http://scratchdisk.com/ & http://jonathanpuckey.com/
+* Paper.js (v0.12.17)  http://paperjs.org/  
+  License MIT  
+  Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey  
+  http://juerglehni.com/ & https://puckey.studio/
 
-* poly-decomp.js (https://github.com/schteppe/poly-decomp.js)
-  License MIT
+* poly-decomp.js (https://github.com/schteppe/poly-decomp.js)  
+  License MIT  
   Copyright (c) 2013 Stefan Hedman
 
  */
@@ -68,6 +68,7 @@ required libraries (and the version tested with)
     var Body = Matter.Body,
         Bodies = Matter.Bodies,
         Vertices = Matter.Vertices,
+        Vector = Matter.Vector,
         Mouse = Matter.Mouse,
         MouseConstraint = Matter.MouseConstraint,
         Render = Matter.Render,
@@ -290,6 +291,9 @@ required libraries (and the version tested with)
             } else if(parent_name.startsWith("bridge")){
                 grp = Composite.create();
                 grp_type = "bridge";
+            } else if(parent_name.startsWith("loop")){
+                grp = Composite.create();
+                grp_type = "loop";
             }
         }
 
@@ -317,7 +321,7 @@ required libraries (and the version tested with)
                     }
                 }
 
-                if(grp_type == "chain" || grp_type == "bridge"){
+                if(grp_type == "chain" || grp_type == "bridge" || grp_type == "loop"){
                     Composite.addBody(grp, body);
                 } else {
                     items.push(body);
@@ -331,29 +335,59 @@ required libraries (and the version tested with)
         }
 
         if(grp_type == "chain"){
-            createChain(grp);
+            createChain(grp, parent_name);
             items.push(grp);
         } else if(grp_type == "bridge"){
             createBridge(grp);
             items.push(grp);           
+        } else if(grp_type == "loop"){
+            // create outer constraints
+            grp.bodies = sortBodiesByNearest(grp.bodies);
+            var stiffness = 0.2;
+            createLoop(grp, stiffness);
+            // create inner constraints
+            if(grp.bodies.length > 3){
+                grp.bodies = sortBodiesByNearest(grp.bodies, true);
+                var ignoreLast = true;
+                stiffness = 0.2;
+                createLoop(grp, stiffness, ignoreLast);    
+            }
+            items.push(grp);
         }
     }
 
-    function createChain(grp){
+    function createChain(grp, parent_name){
         // sort bodies from top to bottom. the pivot of chain is placed at the top body.
+        var as_is = parent_name.includes(" as is");
         if(grp.bodies.length > 1){
             grp.bodies.sort(function(a,b){ return a.position.y - b.position.y; });
-            Composites.chain(grp, 0, 0.5, 0, -0.5, { stiffness: 0.99, length: 1, render: { visible:false } });    
+            if(as_is){
+                for(var i = 0; i < grp.bodies.length - 1; i++){
+                    var b = grp.bodies[i];
+                    var b1 = grp.bodies[i+1]
+                    Composite.add(grp, Constraint.create({
+                        bodyA: b, 
+                        bodyB: b1,
+                        length: Vector.magnitude(Vector.sub(b.position, b1.position)),
+                        stiffness: 0.99,
+                        render: { visible:false }                                
+                    }))
+                }    
+            } else {
+                Composites.chain(grp, 0, 0.5, 0, -0.5, { stiffness: 0.99, length: 1, render: { visible:false } });  
+            }
         }
-        var b = grp.bodies[0];
-        var bHeight = b.bounds.max.y - b.bounds.min.y
-        Composite.add(grp, Constraint.create({
-            bodyB: b,
-            pointB: { x: 0, y: -bHeight / 2 },
-            pointA: { x: b.position.x, y: b.position.y - bHeight / 2},
-            stiffness: 1,
-            render: { visible:false }
-        }));
+        if(true){
+            var b = grp.bodies[0];
+            var bHeight = b.bounds.max.y - b.bounds.min.y
+            Composite.add(grp, Constraint.create({
+                bodyB: b,
+                pointB: { x: 0, y: -bHeight / 2 },
+                pointA: { x: b.position.x, y: b.position.y - bHeight / 2},
+                stiffness: 1,
+                render: { visible:false }
+            }));
+        }
     }
 
     function createBridge(grp){
@@ -382,6 +416,54 @@ required libraries (and the version tested with)
             stiffness: 0.9,
             render: { visible:false }
         }));
+    }
+
+    function createLoop(grp, stiffness, ignoreLast){
+        // ignoreLast: if true, ignore last body
+        var bLength = grp.bodies.length;
+        if(bLength == 1) return;
+        for(var i = 0; i < bLength; i++){
+            if(ignoreLast && i == bLength - 1) break;
+            var b = grp.bodies[i];
+            var nextIndex = i == bLength - 1 ? 0 : i + 1;
+            var b1 = grp.bodies[nextIndex];
+            Composite.add(grp, Constraint.create({
+                bodyA: b, 
+                bodyB: b1,
+                length: Vector.magnitude(Vector.sub(b.position, b1.position)),
+                stiffness: stiffness,
+                //render: { type: 'line' }
+                render: { visible:false }
+            }))
+        }
+    }
+
+    function sortBodiesByNearest(bodies, farthest){
+        // if farthest == true, sorts by farthest
+        if(bodies.length < 3) return bodies;
+        var bs = [bodies[0]];
+        bodies.splice(0, 1);
+        while(bodies.length > 0){
+            var b = bs[bs.length - 1];
+            var min_dist = -1, nearest_idx;
+            for(var i = 0; i < bodies.length; i++){
+                var d = Vector.magnitudeSquared(Vector.sub(b.position, bodies[i].position));
+                if(farthest){
+                    if(min_dist < 0 || d > min_dist){
+                        min_dist = d;
+                        nearest_idx = i;
+                    }    
+                } else {
+                    if(min_dist < 0 || d < min_dist){
+                        min_dist = d;
+                        nearest_idx = i;
+                    }    
+                }
+            }
+            bs.push(bodies[nearest_idx]);
+            bodies.splice(nearest_idx, 1);
+        }
+        return bs;
     }
 
     function isCircle(item){
@@ -479,8 +561,8 @@ required libraries (and the version tested with)
         }
         return p.multiply(1 / segs.length);
     }
-    
-    // ----------------------
+
+   // ----------------------
     // functions to output
     // ----------------------
     // 出力は、各 Body の形状を、別の canvas（display:none）に paper.js

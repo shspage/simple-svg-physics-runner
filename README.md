@@ -32,6 +32,8 @@
 * Illustrator: If there's a group with a name that starts with "chain", the objects in the group are chained vertically, anchored at the top.   
 video - https://twitter.com/shspage/status/1757720353638674790
 * Similarly, if it starts with "bridge", the ends are fixed and connected horizontally.
+* Similarly, if it starts with "loop", it will be connected in a loop. (Connect with each nearest and farthest object.)
+* If the group name starts with "chain" and includes " as is"(it needs first space), the original objects will be connected while maintaining their positions.
 
 ### Try using
 https://shspage.github.io/simple-svg-physics-runner/
@@ -41,7 +43,7 @@ https://shspage.github.io/simple-svg-physics-runner/
 * Non-convex polygons in SVG data are automatically converted to a group of convex polygons,
 and when you save them as SVG, they are exported as it is (a group of convex polygons).
 * In Illustrator, the original path may be changed automatically when SVG code is generated.
-For example, a line whose "line position" is not "center" is converted to a compound path with fill color of original line color.
+For example, **a line whose "line position" is not "center"** is converted to a compound path with fill color of original line color.
 A compound path is not displayed on the screen because it is not processed by this script.
 * When stacking objects are output as SVG, you may notice where the edges of the objects dig into each other.
 If there is enough processing power of your computer, you can mitigate this by increasing ENGINE_POSITION_ITERATIONS at the beginning of simple-svg-physics-runner.js.
@@ -60,6 +62,10 @@ in simple-svg-physics-runner.js.
 
 
 ### ChangeLog
+### v.1.1.1
+* Illustrator: Added a function to connect objects in a loop when the group name starts with "loop".
+* Illustrator: If the group name starts with "chain" and includes " as is"(it needs first space), the original objects will be connected while maintaining their positions.
+
 #### v.1.1.0
 * updated required libraries.
 * removed canvas scrollbars.
