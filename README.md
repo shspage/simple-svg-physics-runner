@@ -9,6 +9,8 @@
 
 ![description](https://github.com/shspage/simple-svg-physics-runner/blob/master/image/description.gif)
 
+* The initial value of **gravity** is 0 in version 1.1.2b or later. Press "g" for normal gravity.
+
 ### How to use
 * Hit "v" to load SVG code from clipboard. (Chrome 66 or later)  
   alternatively, drag and drop SVG file to load.

@@ -7,6 +7,8 @@
 
 ![description](https://github.com/shspage/simple-svg-physics-runner/blob/master/image/description.gif)
 
+* バージョン 1.1.2b 以降、重力の初期値は 0 になりました。通常の重力にする場合は "g" を押してください。
+
 ### 使い方
 * "v" を押すと、クリップボードのSVGコードを読み込みます。(Chrome 66以降)
 
