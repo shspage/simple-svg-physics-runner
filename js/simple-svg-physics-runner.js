@@ -1,7 +1,7 @@
 /*
 simple-svg-physics-runner
 
-2024.02.16, v.1.1.1
+2024.02.18, v.1.1.2b
 
 * Copyright(c) 2018 Hiroyuki Sato
   https://github.com/shspage/simple-svg-physics-runner
@@ -26,7 +26,7 @@ required libraries (and the version tested with)
   Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey  
   http://juerglehni.com/ & https://puckey.studio/
 
-* poly-decomp.js (https://github.com/schteppe/poly-decomp.js)  
+* decomp.js (https://github.com/schteppe/poly-decomp.js)  
   License MIT  
   Copyright (c) 2013 Stefan Hedman
 
@@ -34,11 +34,15 @@ required libraries (and the version tested with)
 
 (function () {
     'use strict';
+    Matter.use('matter-wrap');
+    console.log("@shspage: The wrap plugin appears to be working despite the required version unmatch");
+
     const EXPORT_SVG_FILENAME = "output.svg";
     const CANVAS_BACKGROUND_COLOR = "#fafafa";
     const BODY_DENSITY = 0.12;  // default=0.001
     const FRICTIONAIR_DEFAULT = 0.01;  // 空気抵抗の既定値
     const FRICTIONAIR_HIGH = 0.8;      // 空気抵抗=重い の値
+    const GRAVITY_Y_DEFAULT = 0.8; // 重力=通常 の値
 
     // Matter.Engine properties
     // * The higher the value, the higher quality the simulation will be at the expense of performance.
@@ -48,6 +52,9 @@ required libraries (and the version tested with)
     const ENGINE_VELOCITY_ITERATIONS = 4;  // velocityIterations, default=4
     const ENGINE_CONSTRAINT_ITERATIONS = 2;  // constraintIterations, default=2
 
+    const DECOMP_MINIMUM_AREA = 0; // 複合パスを図形に分解した際に削除する図形の最大面積
+    const DUPLICATE_POINT_TOLERANCE = 0.01; // 複合パスの重複点を取り除くときの許容差
+    const REMOVE_COLLINEAR_PRECISION = 0.01;
 
     // AS_BLACK_THRESHOLD_RGB:
     // * In Illustrator, black in CMYK mode is not converted to #000 in generated SVG code.
@@ -76,13 +83,14 @@ required libraries (and the version tested with)
         Constraint = Matter.Constraint,
         Composites = Matter.Composites,
         Composite = Matter.Composite,
-        Engine = Matter.Engine;
+        Engine = Matter.Engine,
+        Common = Matter.Common;
 
     var _spec = {
         url:null,
         isPause:false,
         wireframes: false,
-        gravity_y:1,
+        gravity_y: 0,
         frictionAir:FRICTIONAIR_DEFAULT
     }
 
@@ -283,7 +291,7 @@ required libraries (and the version tested with)
     }
 
     function extractItems(children, items, parent_name){
-        var grp, grp_type;
+        var grp, grp_type, is_wrap, coll_group;
         if(parent_name){
             if(parent_name.startsWith("chain")){
                 grp = Composite.create();
@@ -291,21 +299,34 @@ required libraries (and the version tested with)
             } else if(parent_name.startsWith("bridge")){
                 grp = Composite.create();
                 grp_type = "bridge";
+                coll_group = Body.nextGroup(true);
             } else if(parent_name.startsWith("loop")){
                 grp = Composite.create();
                 grp_type = "loop";
+                coll_group = Body.nextGroup(true);
             }
+
+            is_wrap = parent_name.includes("wrap");
         }
 
         for(var i = children.length - 1; i >= 0; i--){
             var c = children[i];
             var body;
             if(c.className == 'Layer'){
-                extractItems(c.children, items, "");
-            } else if(c.className == 'Group'){
                 extractItems(c.children, items, c.name);
+            } else if(c.className == 'Group'){
+                extractItems(c.children, items, c.name + "." + parent_name);
             } else if(c.clipMask){
                 c.remove();
+            } else if(c.className == "CompoundPath"){
+                if(!coll_group) coll_group = Body.nextGroup(true);
+                body = createCompoundBody(c, coll_group);
+                if(!body) continue;
+                if(is_wrap) addWrap(body);
+                items.push(body);
+                // * Hulls generated on the outer periphery are excluded from output.
+                // 外周に生成される hull は出力対象外にする。
+                //_styles[body.id] = new SavedStyle(c);
             } else if(c.className == "Shape" || c.className == "Path"){
                 if(c.shape == "rectangle"){
                     body = createRectangle(c);
@@ -318,19 +339,20 @@ required libraries (and the version tested with)
                         continue;
                     } else {
                         body = createPolygon(c);
+                        if(!body) continue;
                     }
                 }
 
                 if(grp_type == "chain" || grp_type == "bridge" || grp_type == "loop"){
+                    if(coll_group) body.collisionFilter.group = coll_group;
                     Composite.addBody(grp, body);
                 } else {
+                    if(is_wrap) addWrap(body);
                     items.push(body);
                 }
 
                 // 元の style を保持し、出力時に反映する
-                if(body){
-                    _styles[body.id] = new SavedStyle(c);
-                }
+                _styles[body.id] = new SavedStyle(c);
             }
         }
 
@@ -341,6 +363,7 @@ required libraries (and the version tested with)
             createBridge(grp);
             items.push(grp);           
         } else if(grp_type == "loop"){
+            if(is_wrap) addWrap(grp);
             // create outer constraints
             grp.bodies = sortBodiesByNearest(grp.bodies);
             var stiffness = 0.2;
@@ -356,13 +379,26 @@ required libraries (and the version tested with)
         }
     }
 
+    function addWrap(body){ // body or composite
+        body.plugin.wrap = {
+            min: {
+              x: 0,
+              y: 0
+            },
+            max: {
+              x: window.innerWidth,
+              y: window.innerWidth
+            }
+          };
+    }
+
     function createChain(grp, parent_name){
         // sort bodies from top to bottom. the pivot of chain is placed at the top body.
         var as_is = parent_name.includes(" as is");
         if(grp.bodies.length > 1){
             grp.bodies.sort(function(a,b){ return a.position.y - b.position.y; });
             if(as_is){
-                for(var i = 0; i < grp.bodies.length - 1; i++){
+                for(var i = 0, iEnd = grp.bodies.length - 1; i < iEnd; i++){
                     var b = grp.bodies[i];
                     var b1 = grp.bodies[i+1]
                     Composite.add(grp, Constraint.create({
@@ -446,7 +482,7 @@ required libraries (and the version tested with)
         while(bodies.length > 0){
             var b = bs[bs.length - 1];
             var min_dist = -1, nearest_idx;
-            for(var i = 0; i < bodies.length; i++){
+            for(var i = 0, iEnd = bodies.length; i < iEnd; i++){
                 var d = Vector.magnitudeSquared(Vector.sub(b.position, bodies[i].position));
                 if(farthest){
                     if(min_dist < 0 || d > min_dist){
@@ -504,12 +540,173 @@ required libraries (and the version tested with)
         return body;
     }
 
-    function createPolygon(item){
-        var centroid = getCentroid(item);
+    function createPolygon(item, centroid){
+        if(!centroid) centroid = item.bounds.center;  //getCentroid(item);
         var points = getPoints(item, centroid);
+        // * If it is not a convex shape, it is divided appropriately to become a convex collection. 
+        //   Complex shapes may not be reproduced
         // 凸形状でない場合は、適宜分割されて凸形状の集合体になる。複雑な形状は再現できない場合もある
         return Bodies.fromVertices(centroid.x, centroid.y, points, getStyle(item));
     }
+
+    function createCompoundBody(c, coll_group){
+        var center = c.bounds.center;
+        var parts = [];
+        var parts_blank = [];
+        var options = {
+            density : BODY_DENSITY,
+            frictionAir : _spec.frictionAir,
+            isStatic : isFilledBlack(c),
+            collisionFilter: { group: coll_group },
+            render : { fillStyle: CANVAS_BACKGROUND_COLOR }
+        };
+        // set export color
+        var cstyle_color = new SavedStyle(c);
+        var cstyle_blank = new SavedStyle({
+            style:{ fillColor: "#FFFFFF", strokeColor: null },
+            opacity:1, blendmode:"normal" });
+
+        for(var ci = 0, ciEnd = c.children.length; ci < ciEnd; ci++){
+            var child = c.children[ci];
+            var cstyle, parts_tmp, part_label;
+            var n = countContainsEx(ci, c.children);
+            if(n % 2 == 0){
+                options.render.fillStyle = color2css(c.fillColor, CANVAS_BACKGROUND_COLOR);
+                cstyle = cstyle_color;
+                parts_tmp = parts;
+                part_label = "";
+            } else {
+                options.render.fillStyle = CANVAS_BACKGROUND_COLOR;
+                cstyle = cstyle_blank;
+                parts_tmp = parts_blank;
+                part_label = "blank";
+            }
+            var vertices = getPoints(child, center);
+            removeDuplicatePoints(vertices);
+
+            // decomp processing referred to Bodies.fromVertices in matter.js
+            var isConvex = Vertices.isConvex(vertices);
+            var isConcave = !isConvex;
+            if(isConcave){
+                var parts1 = [];
+                if(decomp && decomp.quickDecomp){
+                    var concave = vertices.map(function(vertex) {
+                        return [vertex.x, vertex.y];
+                    });
+                    decomp.makeCCW(concave);
+                    decomp.removeCollinearPoints(concave, REMOVE_COLLINEAR_PRECISION);
+                    var decomposed = decomp.quickDecomp(concave);
+
+                    if(decomposed.length < 1){
+                        console.log("decomp failed");
+                        continue;
+                    }
+
+                    for (var i = 0, iEnd = decomposed.length; i < iEnd; i++) {
+                        var chunk = decomposed[i];
+    
+                        // convert vertices into the correct structure
+                        var chunkVertices = chunk.map(function(vertices) {
+                            return {
+                                x: vertices[0],
+                                y: vertices[1]
+                            };
+                        });
+
+                        // skip small chunks
+                        if (DECOMP_MINIMUM_AREA > 0 && Vertices.area(chunkVertices) < DECOMP_MINIMUM_AREA)
+                            continue;
+    
+                        // create a compound part
+                        parts1.push({
+                            position: Vertices.centre(chunkVertices),
+                            vertices: chunkVertices
+                        });
+
+                    }
+                    for (var i = 0, iEnd = parts1.length; i < iEnd; i++) {
+                        var body = Body.create(Common.extend(parts1[i], options));
+                        _styles[body.id] = cstyle;
+                        body.label = part_label;
+                        parts_tmp.push(body);
+                    }
+                }    
+            } else { // if(isConcave)
+                var body = Body.create(Common.extend({
+                    position: Vertices.centre(vertices),
+                    vertices: vertices
+                }, options));
+                _styles[body.id] = cstyle;
+                body.label = part_label;
+                parts_tmp.push(body);
+            }
+        }
+
+        var parts_all = parts.concat(parts_blank);
+        var compound;
+        if(parts_all.length > 0){
+            compound = Body.create({
+                density : BODY_DENSITY,
+                frictionAir : _spec.frictionAir,
+                isStatic : isFilledBlack(c) });
+            Body.setParts(compound, parts_all);
+            Body.translate(compound, center);
+            //Body.setPosition(compound, center);
+        }
+        return compound;
+    }
+
+    function countContainsEx(ci, children){
+        var n0 = countContains(ci, children, 0);
+        var n1 = countContains(ci, children, parseInt(children[ci].segments.length / 2));
+        return Math.min(n0, n1);
+    }
+
+    function countContains(ci, children, idx){
+        // * A simple check to see how many shapes that include 
+        //   children[ci] inside the elements (children) of compound path.
+        //   Assume that there are no intersections of elements.
+        //   If the result is an odd number, consider children[ci] to be a hole.
+        // compound path の要素(children)の中に、
+        // children[ci] を内側に含む図形がいくつあるか
+        // の簡易的なチェック。要素の交差はないと仮定。
+        // 結果が奇数の場合、children[ci] は hole と考える。
+        var n = 0;
+        var p = children[ci].segments[idx].point;
+        for(var i = 0, iEnd = children.length; i < iEnd; i++){
+            if(i == ci) continue;
+            if(children[i].contains(p)){
+                n++;
+            }
+        }
+        return n;
+    }
+
+    function removeDuplicatePoints(points){
+        function checkDuplicatePoint(p, p1){
+            return Math.abs(p.x - p1.x) < DUPLICATE_POINT_TOLERANCE
+             && Math.abs(p.y - p1.y) < DUPLICATE_POINT_TOLERANCE;
+        }
+        var idx = points.length - 1;
+        var p = points[idx];
+        var p1;
+        while(idx > 0){
+            idx--;
+            p1 = points[idx];
+            if(checkDuplicatePoint(p, p1)){
+                points.splice(idx, 1);
+            } else {
+                p = p1;
+            }
+        }
+        if(points.length > 1){
+            p = points[points.length - 1];
+            p1 = points[0];
+            if(checkDuplicatePoint(p, p1)){
+                points.splice(0, 1);
+            }
+        }
+   }
 
     function isFilledBlack(item){
         var result = false;
@@ -577,9 +774,9 @@ required libraries (and the version tested with)
             gr = new paper.Group();
         }
         
-        for(var i = 0; i < bodies.length; i++){
+        for(var i = 0; i < bodies.length ; i++){
             var body = bodies[i];
-
+            
             if( parent_id == undefined){
                 if(body.parts.length > 1){
                     body2pathMain(body.parts, body.id);
@@ -587,11 +784,9 @@ required libraries (and the version tested with)
                 }
                 style_id = body.id;
             } else {
-                if(body.parts.length > 1){
-                    continue;
-                }
-                style_id = parent_id;
+                style_id = body.id;
             }
+            if(!(style_id in _styles)) continue;
 
             // クライアント枠の外側にあるものは出力しない
             if(body.bounds.max.y < 0 || body.bounds.min.y > window.innerHeight
@@ -615,10 +810,14 @@ required libraries (and the version tested with)
 
             // 読み込み時に保持した属性を割り当てる
             _styles[style_id].apply(path);
-            
+        
             if(gr){
-                gr.appendBottom(path);
-            }
+                if(body.label == "blank"){ // a hole of compound body
+                    gr.addChild(path);
+                } else {
+                    gr.insertChild(0, path);
+                }
+            }    
         }
     }
 
@@ -674,8 +873,8 @@ required libraries (and the version tested with)
         var lang = getLang();
         
         $("#stat_gravity_" + lang).text(
-            getMessage("stat_gravity") + (_spec.gravity_y ? 1 : 0));
-        $("#stat_gravity_" + lang).css("color", _spec.gravity_y ? "#888" : "red");
+            getMessage("stat_gravity") + (_spec.gravity_y ? GRAVITY_Y_DEFAULT : 0));
+        $("#stat_gravity_" + lang).css("color", _spec.gravity_y ? "red" : "#888");
         
         $("#stat_frictionAir_" + lang).text(
             getMessage("stat_frictionAir")
@@ -745,7 +944,7 @@ required libraries (and the version tested with)
 
     function key_gravity(){
         // 読み込み前に設定できるようにしている
-        _spec.gravity_y = _spec.gravity_y ? 0 : 1;
+        _spec.gravity_y = _spec.gravity_y ? 0 : GRAVITY_Y_DEFAULT;
         if(_engine){
             _engine.world.gravity.y = _spec.gravity_y;
         }
@@ -808,7 +1007,7 @@ required libraries (and the version tested with)
     // locale
     // ----------------------
     function getLang(){
-        //return "en";
+        //return "en"; // for test
         return navigator.language.startsWith("ja") ? "ja" : "en";
     }
     

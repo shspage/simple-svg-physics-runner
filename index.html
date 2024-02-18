@@ -7,6 +7,7 @@
 <script type="text/javascript" src="js/lib/paperjs-v0.12.17/paper-core.min.js"></script>
 <script type="text/javascript" src="js/lib/decomp.js"></script>
 <script type="text/javascript" src="js/lib/matter.js"></script>
+<script type="text/javascript" src="js/lib/matter-wrap.js"></script>
 <title></title>
 </head>
 <body>
@@ -23,7 +24,7 @@ v : paste SVG
 s : export SVG
 p : pause / play
 w : toggle wireframe
-g : toggle gravity 0/1
+g : toggle gravity
 a : toggle airResistance
 </pre>
 <pre id="help_ja" style="display:none">
@@ -68,7 +69,7 @@ a : toggle airResistance
 * Hit "p" to toggle pause/play.
 * Hit "s" to export SVG file.
 * Hit "w" to toggle wireframes.
-* Hit "g" to toggle gravity 0/1.
+* Hit "g" to toggle gravity.
 * Hit "a" to toggle air resistance normal/HIGH
 
 * "w", "g" and "a" can be set before loading.
@@ -82,12 +83,12 @@ created by <a href="https://twitter.com/shspage" target="_blank">@shspage</a>
 </pre>
 </div><!-- /description -->
 <div id="status_ja" style="display:none">
-	<span id="stat_gravity_ja">重力=1</span>, 
+	<span id="stat_gravity_ja">重力=0</span>, 
 	<span id="stat_frictionAir_ja">空気抵抗=通常</span>, 
 	<span id="stat_display_ja">表示=通常</span>
 </div>
 <div id="status_en" style="display:none">
-	<span id="stat_gravity_en">gravity=1</span>, 
+	<span id="stat_gravity_en">gravity=0</span>, 
 	<span id="stat_frictionAir_en">airResistance=normal</span>, 
 	<span id="stat_display_en">display=normal</span>
 </div>

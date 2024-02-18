@@ -16,8 +16,8 @@
 * After loading, the objects filled with **black** stay on fixed position.  
   Other objects move according to the law of physics, and draggable.
 
-* It loads only paths (circle and polygon). Compound paths are not available.  
-  Also, **the curve other than the circle** becomes a polygonal line.
+* It loads only closed paths (circle, polygon and compound path).  Ellipse is not supported.  
+  **The curve other than the circle** becomes a polygonal line.
 
 * Hit "p" to toggle pause/play.
 * Hit "s" to export SVG file.
@@ -28,8 +28,14 @@
 * "w", "g" and "a" can be set before loading.
 
 ----
+### Advanced usage (Illustrator)
 
-* Illustrator: If there's a group with a name that starts with "chain", the objects in the group are chained vertically, anchored at the top.   
+#### Control by LAYER name
+* If the layer name includes "wrap", objects that go out of the screen will come in from the opposite side of the screen.  
+(I recommend setting gravity to 0 before use.)
+
+#### Control by GROUP name
+* If the group name starts with "chain", the objects in the group are chained vertically, anchored at the top.   
 video - https://twitter.com/shspage/status/1757720353638674790
 * Similarly, if it starts with "bridge", the ends are fixed and connected horizontally.
 * Similarly, if it starts with "loop", it will be connected in a loop. (Connect with each nearest and farthest object.)
@@ -41,10 +47,10 @@ https://shspage.github.io/simple-svg-physics-runner/
 ### Note:
 * Loading from the clipboard does not work with the http protocol (works with https or file)
 * Non-convex polygons in SVG data are automatically converted to a group of convex polygons,
-and when you save them as SVG, they are exported as it is (a group of convex polygons).
-* In Illustrator, the original path may be changed automatically when SVG code is generated.
+and when you save them as SVG, they are exported as it is (a group of convex polygons).  
+  Splitting into convex polygons may not work well for complex shapes.
+* **IMPORTANT** : In Illustrator, the original path may be changed automatically when SVG code is generated.
 For example, **a line whose "line position" is not "center"** is converted to a compound path with fill color of original line color.
-A compound path is not displayed on the screen because it is not processed by this script.
 * When stacking objects are output as SVG, you may notice where the edges of the objects dig into each other.
 If there is enough processing power of your computer, you can mitigate this by increasing ENGINE_POSITION_ITERATIONS at the beginning of simple-svg-physics-runner.js.
 (Though I'm not sure whether it is appropriate to adjust this value to improve accuracy.
@@ -60,8 +66,15 @@ and it is also set to #000 when exporting.
 If you do not want to perform this color conversion, please set AS_BLACK_THRESHOLD_RGB to [0,0,0]
 in simple-svg-physics-runner.js.
 
+* Compound paths are drawn as shapes with no "holes". What looks like a hole is a shape painted with the background color. Therefore, you cannot place other shapes inside the "hole".
+
 
 ### ChangeLog
+### v.1.1.2b
+* Set default gravity to 0, normal gravity to 0.8.
+* Added "wrap" feature. (matter-wrap plugin appears to be working despite the required version unmatch)
+* Supports drawing compound paths. (See also note section for additional notes.)
+
 ### v.1.1.1
 * Illustrator: Added a function to connect objects in a loop when the group name starts with "loop".
 * Illustrator: If the group name starts with "chain" and includes " as is"(it needs first space), the original objects will be connected while maintaining their positions.
@@ -108,6 +121,6 @@ in simple-svg-physics-runner.js.
   Copyright (c) 2011 - 2020, Jürg Lehni & Jonathan Puckey  
   http://juerglehni.com/ & https://puckey.studio/
 
-* poly-decomp.js (https://github.com/schteppe/poly-decomp.js)  
+* decomp.js (https://github.com/schteppe/poly-decomp.js)  
   License MIT  
   Copyright (c) 2013 Stefan Hedman
