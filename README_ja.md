@@ -71,7 +71,12 @@ https://shspage.github.io/simple-svg-physics-runner/
 
 
 ### 変更履歴
-### v.1.1.2b
+#### v.1.1.2b1
+* 重力が 0 の場合の文字表示を赤色に変更。通常の重力の値を 1 に変更。
+* bodyにrestitution（反発）の値を設定。
+* "chain", "bridge" の最後の constraint が固い問題に暫定的に対応。
+
+#### v.1.1.2b
 * 重力の初期値を 0 に変更。通常の重力の値を 0.8 に変更。
 * "wrap"機能を追加。（matter-wrapのバージョン整合性が一致しませんが動作しているようです。）
 * 複合パスの描画に対応。(note の注意事項もご覧ください。)

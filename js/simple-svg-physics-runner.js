@@ -1,7 +1,7 @@
 /*
 simple-svg-physics-runner
 
-2024.02.18, v.1.1.2b
+2024.02.18, v.1.1.2b1
 
 * Copyright(c) 2018 Hiroyuki Sato
   https://github.com/shspage/simple-svg-physics-runner
@@ -42,7 +42,8 @@ required libraries (and the version tested with)
     const BODY_DENSITY = 0.12;  // default=0.001
     const FRICTIONAIR_DEFAULT = 0.01;  // 空気抵抗の既定値
     const FRICTIONAIR_HIGH = 0.8;      // 空気抵抗=重い の値
-    const GRAVITY_Y_DEFAULT = 0.8; // 重力=通常 の値
+    const GRAVITY_Y_DEFAULT = 1; // 重力=通常 の値
+    const RESTITUTION_DEFAULT = 0.35; // 反発の既定値
 
     // Matter.Engine properties
     // * The higher the value, the higher quality the simulation will be at the expense of performance.
@@ -411,6 +412,8 @@ required libraries (and the version tested with)
                 }    
             } else {
                 Composites.chain(grp, 0, 0.5, 0, -0.5, { stiffness: 0.99, length: 1, render: { visible:false } });  
+                // 最後の constraint の動作が固い。原因は今のところ不明。
+                grp.constraints[grp.constraints.length - 1].stiffness = 0.66;
             }
         }
         if(true){
@@ -428,29 +431,37 @@ required libraries (and the version tested with)
 
     function createBridge(grp){
         // sort bodies horizontaly. the pivot of chain is placed at both ends of bodies.
+        if(grp.bodies.length < 1) return;
+
         if(grp.bodies.length > 1){
             grp.bodies.sort(function(a,b){ return a.position.x - b.position.x; });
-            Composites.chain(grp, 0.5, 0, -0.5, 0, { stiffness: 0.99, length: 0.0001, render: { visible:false } });    
+        }
+        var left = grp.bodies[0].bounds.min.x;
+        var right = grp.bodies[grp.bodies.length - 1].bounds.max.x;
+        if(grp.bodies.length > 1){
+            Composites.chain(grp, 0.5, 0, -0.5, 0, { stiffness: 0.99, length: 0.0001, render: { visible: false } });
+            // 最後の constraint の動作が固い。原因は今のところ不明。
+            grp.constraints[grp.constraints.length - 1].stiffness = 0.66;
         }
         var b = grp.bodies[0];
-        var bWidth = b.bounds.max.x - b.bounds.min.x
+        var bWidth = b.bounds.max.x - b.bounds.min.x;
         Composite.add(grp, Constraint.create({
             bodyB: b,
             pointB: { x: -bWidth / 2, y: 0 },
-            pointA: { x: b.position.x - bWidth / 2, y: b.position.y },
+            pointA: { x: left, y: b.position.y },
             length: 2,
             stiffness: 0.9,
-            render: { visible:false }
+            render: { visible: false }
         }));
         b = grp.bodies[grp.bodies.length - 1];
-        bWidth = b.bounds.max.x - b.bounds.min.x
+        bWidth = b.bounds.max.x - b.bounds.min.x;
         Composite.add(grp, Constraint.create({
             bodyB: b,
             pointB: { x: bWidth / 2, y: 0 },
-            pointA: { x: b.position.x + bWidth / 2, y: b.position.y },
+            pointA: { x: right, y: b.position.y },
             length: 2,
             stiffness: 0.9,
-            render: { visible:false }
+            render: { visible: false }
         }));
     }
 
@@ -556,6 +567,7 @@ required libraries (and the version tested with)
         var options = {
             density : BODY_DENSITY,
             frictionAir : _spec.frictionAir,
+            restitution : RESTITUTION_DEFAULT, 
             isStatic : isFilledBlack(c),
             collisionFilter: { group: coll_group },
             render : { fillStyle: CANVAS_BACKGROUND_COLOR }
@@ -648,6 +660,7 @@ required libraries (and the version tested with)
             compound = Body.create({
                 density : BODY_DENSITY,
                 frictionAir : _spec.frictionAir,
+                restitution : RESTITUTION_DEFAULT, 
                 isStatic : isFilledBlack(c) });
             Body.setParts(compound, parts_all);
             Body.translate(compound, center);
@@ -706,7 +719,7 @@ required libraries (and the version tested with)
                 points.splice(0, 1);
             }
         }
-   }
+    }
 
     function isFilledBlack(item){
         var result = false;
@@ -730,6 +743,7 @@ required libraries (and the version tested with)
         return {
             density : BODY_DENSITY,
             frictionAir : _spec.frictionAir,
+            restitution : RESTITUTION_DEFAULT, 
             isStatic : isFilledBlack(item),
             render : {
                 fillStyle: color2css(item.fillColor, CANVAS_BACKGROUND_COLOR),
@@ -874,7 +888,7 @@ required libraries (and the version tested with)
         
         $("#stat_gravity_" + lang).text(
             getMessage("stat_gravity") + (_spec.gravity_y ? GRAVITY_Y_DEFAULT : 0));
-        $("#stat_gravity_" + lang).css("color", _spec.gravity_y ? "red" : "#888");
+        $("#stat_gravity_" + lang).css("color", _spec.gravity_y ? "#888" : "red");
         
         $("#stat_frictionAir_" + lang).text(
             getMessage("stat_frictionAir")

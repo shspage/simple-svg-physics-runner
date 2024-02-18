@@ -72,12 +72,17 @@ in simple-svg-physics-runner.js.
 
 
 ### ChangeLog
-### v.1.1.2b
+#### v.1.1.2b1
+* Changed the text display to red when gravity is 0. Changed normal gravity value to 1.
+* Set the restitution value to all bodies.
+* Tentative fix for the problem where the last constraint of "chain" and "bridge" is hard.
+
+#### v.1.1.2b
 * Set default gravity to 0, normal gravity to 0.8.
 * Added "wrap" feature. (matter-wrap plugin appears to be working despite the required version unmatch)
 * Supports drawing compound paths. (See also note section for additional notes.)
 
-### v.1.1.1
+#### v.1.1.1
 * Illustrator: Added a function to connect objects in a loop when the group name starts with "loop".
 * Illustrator: If the group name starts with "chain" and includes " as is"(it needs first space), the original objects will be connected while maintaining their positions.
 
