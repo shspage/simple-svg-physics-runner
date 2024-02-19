@@ -15,11 +15,8 @@
 * Hit "v" to load SVG code from clipboard. (Chrome 66 or later)  
   alternatively, drag and drop SVG file to load.
 
-* After loading, the objects filled with **black** stay on fixed position.  
+* It loads only closed paths. After loading, the objects filled with **black** stay on fixed position.  
   Other objects move according to the law of physics, and draggable.
-
-* It loads only closed paths (circle, polygon and compound path).  Ellipse is not supported.  
-  **The curve other than the circle** becomes a polygonal line.
 
 * Hit "p" to toggle pause/play.
 * Hit "s" to export SVG file.
@@ -49,7 +46,7 @@ https://shspage.github.io/simple-svg-physics-runner/
 ### Note:
 * Loading from the clipboard does not work with the http protocol (works with https or file)
 * Non-convex polygons in SVG data are automatically converted to a group of convex polygons,
-and when you save them as SVG, they are exported as it is (a group of convex polygons).  
+and when you save them as SVG, they are exported as the original SVG shapes.  
   Splitting into convex polygons may not work well for complex shapes.
 * **IMPORTANT** : In Illustrator, the original path may be changed automatically when SVG code is generated.
 For example, **a line whose "line position" is not "center"** is converted to a compound path with fill color of original line color.
@@ -72,6 +69,10 @@ in simple-svg-physics-runner.js.
 
 
 ### ChangeLog
+#### v.1.2.0b
+* Added processing to convert curves to polylines as appropriate.
+* Exports the original SVG shapes, even if polygons and curves are reshaped to handle with the physics engine.
+
 #### v.1.1.2b1
 * Changed the text display to red when gravity is 0. Changed normal gravity value to 1.
 * Set the restitution value to all bodies.

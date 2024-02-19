@@ -1,7 +1,7 @@
 /*
 simple-svg-physics-runner
 
-2024.02.19, v.1.1.2b2
+2024.02.20, v.1.2.0b
 
 * Copyright(c) 2018 Hiroyuki Sato
   https://github.com/shspage/simple-svg-physics-runner
@@ -55,8 +55,8 @@ required libraries (and the version tested with)
 
     const DECOMP_MINIMUM_AREA = 0; // 複合パスを図形に分解した際に削除する図形の最大面積
     const DUPLICATE_POINT_TOLERANCE = 0.01; // 複合パスの重複点を取り除くときの許容差
-    const REMOVE_COLLINEAR_PRECISION = 0.01;
-    const FLATTEN_FLATNESS = 0.25; // 曲線を折線化する際の許容誤差
+    const REMOVE_COLLINEAR_PRECISION = 0.01; // 頂点が直線上にあると見なす許容差
+    const FLATTEN_FLATNESS = 0.25; // 曲線を折れ線化する際の許容誤差
 
     // AS_BLACK_THRESHOLD_RGB:
     // * In Illustrator, black in CMYK mode is not converted to #000 in generated SVG code.
@@ -114,22 +114,8 @@ required libraries (and the version tested with)
     var _engine;
     var _runner;
     var _render;
-
-    // paper.jsのPathの属性を保持・復旧する
-    var SavedStyle = function(path){
-        this.style = path.style;
-        this.opacity = path.opacity;
-        // blendModeはIllustratorではSVGに反映されない
-        this.blendMode = path.blendMode;
-    }
-    SavedStyle.prototype = {
-        apply : function(path){
-            path.style = this.style;
-            path.opacity = this.opacity;
-            path.blendMode = this.blendMode;
-        }
-    }
-    var _styles = {};
+    
+    var _svgShapes = {}; // { body.id : paper.Item }
 
     function setupWorld(items){
         _engine = Engine.create({
@@ -276,6 +262,7 @@ required libraries (and the version tested with)
     //   by putting it in the paper.js class rather than writing the analyzing
     //   process by myself.  For this reason, at here, the Paths loaded with
     //   paper.js are converted to Body object of Matter.js.
+    //   Paths are kept in the background and used when exporting.
     // * クリップボードまたはファイルからのSVGデータ取り込み。
     //   paper.js の importSVG で行う。Matter.js にも SVG 取り込みの
     //   メソッドはあるが、サンプルコードにあるのは形状を取り込む処理
@@ -284,11 +271,11 @@ required libraries (and the version tested with)
     //   落とし込んだほうが扱いやすいと考えた。
     //   このためここでは、paper.js で取り込んだ Path を Matter.js の
     //   Body に変換する処理をしている。
+    //   Path はバックグラウンドで保持され、エクスポート時に使われる。
     
     function paper2matter(){
         var items = [];
         extractItems(paper.project.activeLayer.children, items, "");
-        paper.project.clear();
         setupWorld(items);
     }
 
@@ -323,20 +310,22 @@ required libraries (and the version tested with)
             } else if(c.className == "CompoundPath"){
                 if(!coll_group) coll_group = Body.nextGroup(true);
                 body = createCompoundBody(c, coll_group);
-                if(!body) continue;
-                if(is_wrap) addWrap(body);
-                items.push(body);
-           } else if(c.className == "Shape" || c.className == "Path"){
+                if(body){
+                    if(is_wrap) addWrap(body);
+                    items.push(body);
+                    _svgShapes[body.id] = c;
+                }
+            } else if(c.className == "Shape" || c.className == "Path"){
                 if(c.shape == "rectangle"){
                     body = createRectangle(c);
                 } else if(c.shape == "circle" || isCircle(c)){
                     body = createCircle(c);
                 } else if(c.shape == "ellipse"){
-                    body = createPolygon(c.toPath());
+                    var tmp_path = c.toPath();
+                    body = createPolygon(tmp_path);
+                    tmp_path.remove();
                 } else if(c.segments){
-                    if(c.segments.length < 3 || (!c.closed)){
-                        continue;
-                    } else {
+                    if(c.closed){
                         body = createPolygon(c);              
                     }
                 }
@@ -350,10 +339,7 @@ required libraries (and the version tested with)
                     items.push(body);
                 }
 
-                // 元の style を保持し、出力時に反映する
-                if(body.parts.length == 1){
-                    _styles[body.id] = new SavedStyle(c);
-                }
+                _svgShapes[body.id] = c;
             }
         }
 
@@ -395,13 +381,13 @@ required libraries (and the version tested with)
 
     function createChain(grp, parent_name){
         // sort bodies from top to bottom. the pivot of chain is placed at the top body.
-        var as_is = parent_name.includes(" as is");
+        var as_is = parent_name.includes("_as_is");
         if(grp.bodies.length > 1){
             grp.bodies.sort(function(a,b){ return a.position.y - b.position.y; });
             if(as_is){
                 for(var i = 0, iEnd = grp.bodies.length - 1; i < iEnd; i++){
                     var b = grp.bodies[i];
-                    var b1 = grp.bodies[i+1]
+                    var b1 = grp.bodies[i + 1]
                     Composite.add(grp, Constraint.create({
                         bodyA: b, 
                         bodyB: b1,
@@ -553,11 +539,13 @@ required libraries (and the version tested with)
 
     function createPolygon(c){
         var center = c.bounds.center;
-        c.flatten(FLATTEN_FLATNESS);
-        var vertices = getPoints(c, center);
-        //
+        var c1 = c.clone();
+        c1.flatten(FLATTEN_FLATNESS);
+        var vertices = getPoints(c1, center);
+        c1.remove();
+        removeDuplicatePoints(vertices);
+
         var options = getStyle(c);
-        var cstyle = new SavedStyle(c);
         var body;
         if(!Vertices.isConvex(vertices)){
             var parts = [];
@@ -565,7 +553,6 @@ required libraries (and the version tested with)
             decompPolygon(vertices, decomped_parts);
             for (var i = 0, iEnd = decomped_parts.length; i < iEnd; i++) {
                 var part_body = Body.create(Common.extend(decomped_parts[i], options));
-                _styles[part_body.id] = cstyle;
                 parts.push(part_body);
             }
             body = Body.create(options);
@@ -578,7 +565,6 @@ required libraries (and the version tested with)
     }
 
     function createCompoundBody(c, coll_group){
-        c.flatten(FLATTEN_FLATNESS);
         var center = c.bounds.center;
         var parts = [];
         var parts_blank = [];
@@ -590,37 +576,29 @@ required libraries (and the version tested with)
             collisionFilter: { group: coll_group },
             render : { fillStyle: CANVAS_BACKGROUND_COLOR }
         };
-        // set export color
-        var cstyle_color = new SavedStyle(c);
-        var cstyle_blank = new SavedStyle({
-            style:{ fillColor: "#FFFFFF", strokeColor: null },
-            opacity:1, blendmode:"normal" });
-
+        var c1 = c.clone();
+        c1.flatten(FLATTEN_FLATNESS);
         for(var ci = 0, ciEnd = c.children.length; ci < ciEnd; ci++){
-            var child = c.children[ci];
-            var cstyle, parts_tmp, part_label;
+            var child = c1.children[ci];
+            var parts_tmp, part_label;
             var n = countContainsEx(ci, c.children);
             if(n % 2 == 0){
                 options.render.fillStyle = color2css(c.fillColor, CANVAS_BACKGROUND_COLOR);
-                cstyle = cstyle_color;
                 parts_tmp = parts;
                 part_label = "";
             } else {
                 options.render.fillStyle = CANVAS_BACKGROUND_COLOR;
-                cstyle = cstyle_blank;
                 parts_tmp = parts_blank;
                 part_label = "blank";
             }
             var vertices = getPoints(child, center);
             removeDuplicatePoints(vertices);
 
-            // decomp processing referred to Bodies.fromVertices in matter.js
             if(!Vertices.isConvex(vertices)){
                 var decomped_parts = [];
                 decompPolygon(vertices, decomped_parts);
                 for (var i = 0, iEnd = decomped_parts.length; i < iEnd; i++) {
                     var body = Body.create(Common.extend(decomped_parts[i], options));
-                    _styles[body.id] = cstyle;
                     body.label = part_label;
                     parts_tmp.push(body);
                 }
@@ -629,11 +607,11 @@ required libraries (and the version tested with)
                     position: Vertices.centre(vertices),
                     vertices: vertices
                 }, options));
-                _styles[body.id] = cstyle;
                 body.label = part_label;
                 parts_tmp.push(body);
             }
         }
+        c1.remove();
 
         var parts_all = parts.concat(parts_blank);
         var compound;
@@ -650,6 +628,7 @@ required libraries (and the version tested with)
         return compound;
     }
 
+    // decomp processing referred to Bodies.fromVertices in matter.js
     function decompPolygon(vertices, decomped_parts){
         if(decomp && decomp.quickDecomp){
             var concave = vertices.map(function(vertex) {
@@ -758,7 +737,7 @@ required libraries (and the version tested with)
     
     function getStyle(item){
         // ・塗り=null にするとデフォルト色（ランダムカラー）が割り当てられる模様
-        // 　なので、塗りなしの場合、背景色を設定している。書き出し時は _styles に保持する元の色が設定される。
+        // 　なので、塗りなしの場合、背景色を設定している。
         return {
             density : BODY_DENSITY,
             frictionAir : _spec.frictionAir,
@@ -773,16 +752,16 @@ required libraries (and the version tested with)
         }
     }
 
-    function getPoints(item, centroid){
+    function getPoints(item, center){
         var segs = item.segments;
         var r = [];
         for(var i = 0, iEnd = segs.length; i < iEnd; i++){
-            r.push(segs[i].point.subtract(centroid));
+            r.push(segs[i].point.subtract(center));
         }
         return r;
     }
 
-    function getCentroid(item){
+    /* function getCentroid(item){
         var segs = item.segments;
         var p = segs[0].point.clone();
         for(var i = 1, iEnd = segs.length; i < iEnd; i++){
@@ -790,36 +769,42 @@ required libraries (and the version tested with)
             p.y += segs[i].point.y;
         }
         return p.multiply(1 / segs.length);
-    }
+    } */
 
    // ----------------------
     // functions to output
     // ----------------------
-    // 出力は、各 Body の形状を、別の canvas（display:none）に paper.js
-    // で写し取り、exportSVG している。
-    // 形状が concave の場合、Body生成時に適宜分割された形状をグループ化
-    // したものを出力する。
-    
-    function body2pathMain(bodies, parent_id){
-        var gr;
-        var style_id;
-        if(parent_id != undefined){
-            gr = new paper.Group();
-        }
-        
-        for(var i = 0; i < bodies.length ; i++){
-            var body = bodies[i];
-            
-            if( parent_id == undefined){
-                if(body.parts.length > 1){
-                    body2pathMain(body.parts, body.id);
-                    continue;
-                }
-                style_id = body.id;
-            } else {
-                style_id = body.id;
+    // body.id に関連づけた、paper.js でimportした元の形状を、
+    // 別レイヤーにコピーし、body の移動・回転を適用したうえで exportSVG する。
+    function exportSVGtoFile(){
+        if(confirm(getMessage("export_svg_confirm"))){
+            try{
+                var active_layer = paper.project.activeLayer;
+                var layer = body2path();
+                active_layer.visible = false;
+
+                if(_spec.url) URL.revokeObjectURL(_spec.url);
+                var svg = paper.project.exportSVG();
+                var seri = new XMLSerializer();
+                var s = seri.serializeToString(svg);
+                _spec.url = handleDownload(s);
+                alert(getMessage("exported"));
+            } catch(e){
+                console.log(e);
+                alert(getMessage("failed_to_export"));
+            } finally {
+                layer.remove();
+                active_layer.visible = true;
             }
-            if(!(style_id in _styles)) continue;
+        }
+    }
+
+    function body2path(){
+        var all_bodies = Composite.allBodies(_engine.world);
+        var layer = new paper.Layer();
+        for(var i = 0, iEnd = all_bodies.length; i < iEnd ; i++){
+            var body = all_bodies[i];
+            if(!(body.id in _svgShapes)) continue;
 
             // クライアント枠の外側にあるものは出力しない
             if(body.bounds.max.y < 0 || body.bounds.min.y > window.innerHeight
@@ -827,56 +812,19 @@ required libraries (and the version tested with)
                 continue;
             }
 
-            var path;
-            if(body.label == "Circle Body"){
-                var radius = body.circleRadius;
-                var center = body.position;
-                path = new paper.Path.Circle(center, radius);
-            } else {  // "Rectangle Body", "Body", "Polygon Body"
-                var vs = body.vertices;
-                var segs = [];
-                for(var j = 0; j < vs.length; j++){
-                    segs.push([vs[j].x, vs[j].y]);
-                }
-                path = new paper.Path({ segments:segs, closed:true });
+            var path = _svgShapes[body.id].copyTo(layer);
+            if(body.label != "Circle Body"){
+                path.rotate(body.angle * 180 / Math.PI);
             }
-
-            // 読み込み時に保持した属性を割り当てる
-            _styles[style_id].apply(path);
-        
-            if(gr){
-                if(body.label == "blank"){ // a hole of compound body
-                    gr.addChild(path);
-                } else {
-                    gr.insertChild(0, path);
-                }
-            }    
+            var body_center = new paper.Point(
+                (body.bounds.max.x + body.bounds.min.x) / 2,
+                (body.bounds.max.y + body.bounds.min.y) / 2
+            );
+            path.translate(body_center.subtract(path.position));
         }
+        return layer;
     }
-
-    function body2path(){
-        body2pathMain(Composite.allBodies(_engine.world));
-    }
-
-    function exportSVGtoFile(){
-        body2path();
-        try{
-            if(confirm(getMessage("export_svg_confirm"))){
-                if(_spec.url) URL.revokeObjectURL(_spec.url);
-                var svg = paper.project.exportSVG();
-                var seri = new XMLSerializer();
-                var s = seri.serializeToString(svg);
-                _spec.url = handleDownload(s);
-                alert(getMessage("exported"));
-            }
-        } catch(e){
-            console.log(e);
-            alert(getMessage("failed_to_export"));
-        } finally {
-            paper.project.clear();
-        }
-    }
-    
+   
     function handleDownload(text) {
         var blob = new Blob([ text ], { "type" : "image/svg+xml" });
         var a = document.createElement("a");
