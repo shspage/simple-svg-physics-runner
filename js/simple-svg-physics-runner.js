@@ -1,7 +1,7 @@
 /*
 simple-svg-physics-runner
 
-2024.02.18, v.1.1.2b1
+2024.02.19, v.1.1.2b2
 
 * Copyright(c) 2018 Hiroyuki Sato
   https://github.com/shspage/simple-svg-physics-runner
@@ -56,6 +56,7 @@ required libraries (and the version tested with)
     const DECOMP_MINIMUM_AREA = 0; // 複合パスを図形に分解した際に削除する図形の最大面積
     const DUPLICATE_POINT_TOLERANCE = 0.01; // 複合パスの重複点を取り除くときの許容差
     const REMOVE_COLLINEAR_PRECISION = 0.01;
+    const FLATTEN_FLATNESS = 0.25; // 曲線を折線化する際の許容誤差
 
     // AS_BLACK_THRESHOLD_RGB:
     // * In Illustrator, black in CMYK mode is not converted to #000 in generated SVG code.
@@ -325,24 +326,21 @@ required libraries (and the version tested with)
                 if(!body) continue;
                 if(is_wrap) addWrap(body);
                 items.push(body);
-                // * Hulls generated on the outer periphery are excluded from output.
-                // 外周に生成される hull は出力対象外にする。
-                //_styles[body.id] = new SavedStyle(c);
-            } else if(c.className == "Shape" || c.className == "Path"){
+           } else if(c.className == "Shape" || c.className == "Path"){
                 if(c.shape == "rectangle"){
                     body = createRectangle(c);
                 } else if(c.shape == "circle" || isCircle(c)){
                     body = createCircle(c);
-                } else {
-                    if(!c.segments){  // ellipse, etc.
-                        continue;
-                    } else if(c.segments.length < 3 || (!c.closed)){
+                } else if(c.shape == "ellipse"){
+                    body = createPolygon(c.toPath());
+                } else if(c.segments){
+                    if(c.segments.length < 3 || (!c.closed)){
                         continue;
                     } else {
-                        body = createPolygon(c);
-                        if(!body) continue;
+                        body = createPolygon(c);              
                     }
                 }
+                if(!body) continue;
 
                 if(grp_type == "chain" || grp_type == "bridge" || grp_type == "loop"){
                     if(coll_group) body.collisionFilter.group = coll_group;
@@ -353,7 +351,9 @@ required libraries (and the version tested with)
                 }
 
                 // 元の style を保持し、出力時に反映する
-                _styles[body.id] = new SavedStyle(c);
+                if(body.parts.length == 1){
+                    _styles[body.id] = new SavedStyle(c);
+                }
             }
         }
 
@@ -551,16 +551,34 @@ required libraries (and the version tested with)
         return body;
     }
 
-    function createPolygon(item, centroid){
-        if(!centroid) centroid = item.bounds.center;  //getCentroid(item);
-        var points = getPoints(item, centroid);
-        // * If it is not a convex shape, it is divided appropriately to become a convex collection. 
-        //   Complex shapes may not be reproduced
-        // 凸形状でない場合は、適宜分割されて凸形状の集合体になる。複雑な形状は再現できない場合もある
-        return Bodies.fromVertices(centroid.x, centroid.y, points, getStyle(item));
+    function createPolygon(c){
+        var center = c.bounds.center;
+        c.flatten(FLATTEN_FLATNESS);
+        var vertices = getPoints(c, center);
+        //
+        var options = getStyle(c);
+        var cstyle = new SavedStyle(c);
+        var body;
+        if(!Vertices.isConvex(vertices)){
+            var parts = [];
+            var decomped_parts = [];
+            decompPolygon(vertices, decomped_parts);
+            for (var i = 0, iEnd = decomped_parts.length; i < iEnd; i++) {
+                var part_body = Body.create(Common.extend(decomped_parts[i], options));
+                _styles[part_body.id] = cstyle;
+                parts.push(part_body);
+            }
+            body = Body.create(options);
+            Body.setParts(body, parts);
+            Body.translate(body, center);
+        } else {
+            body = Bodies.fromVertices(center.x, center.y, vertices, options);
+        }
+        return body;
     }
 
     function createCompoundBody(c, coll_group){
+        c.flatten(FLATTEN_FLATNESS);
         var center = c.bounds.center;
         var parts = [];
         var parts_blank = [];
@@ -597,53 +615,16 @@ required libraries (and the version tested with)
             removeDuplicatePoints(vertices);
 
             // decomp processing referred to Bodies.fromVertices in matter.js
-            var isConvex = Vertices.isConvex(vertices);
-            var isConcave = !isConvex;
-            if(isConcave){
-                var parts1 = [];
-                if(decomp && decomp.quickDecomp){
-                    var concave = vertices.map(function(vertex) {
-                        return [vertex.x, vertex.y];
-                    });
-                    decomp.makeCCW(concave);
-                    decomp.removeCollinearPoints(concave, REMOVE_COLLINEAR_PRECISION);
-                    var decomposed = decomp.quickDecomp(concave);
-
-                    if(decomposed.length < 1){
-                        console.log("decomp failed");
-                        continue;
-                    }
-
-                    for (var i = 0, iEnd = decomposed.length; i < iEnd; i++) {
-                        var chunk = decomposed[i];
-    
-                        // convert vertices into the correct structure
-                        var chunkVertices = chunk.map(function(vertices) {
-                            return {
-                                x: vertices[0],
-                                y: vertices[1]
-                            };
-                        });
-
-                        // skip small chunks
-                        if (DECOMP_MINIMUM_AREA > 0 && Vertices.area(chunkVertices) < DECOMP_MINIMUM_AREA)
-                            continue;
-    
-                        // create a compound part
-                        parts1.push({
-                            position: Vertices.centre(chunkVertices),
-                            vertices: chunkVertices
-                        });
-
-                    }
-                    for (var i = 0, iEnd = parts1.length; i < iEnd; i++) {
-                        var body = Body.create(Common.extend(parts1[i], options));
-                        _styles[body.id] = cstyle;
-                        body.label = part_label;
-                        parts_tmp.push(body);
-                    }
-                }    
-            } else { // if(isConcave)
+            if(!Vertices.isConvex(vertices)){
+                var decomped_parts = [];
+                decompPolygon(vertices, decomped_parts);
+                for (var i = 0, iEnd = decomped_parts.length; i < iEnd; i++) {
+                    var body = Body.create(Common.extend(decomped_parts[i], options));
+                    _styles[body.id] = cstyle;
+                    body.label = part_label;
+                    parts_tmp.push(body);
+                }
+            } else {
                 var body = Body.create(Common.extend({
                     position: Vertices.centre(vertices),
                     vertices: vertices
@@ -667,6 +648,44 @@ required libraries (and the version tested with)
             //Body.setPosition(compound, center);
         }
         return compound;
+    }
+
+    function decompPolygon(vertices, decomped_parts){
+        if(decomp && decomp.quickDecomp){
+            var concave = vertices.map(function(vertex) {
+                return [vertex.x, vertex.y];
+            });
+            decomp.makeCCW(concave);
+            decomp.removeCollinearPoints(concave, REMOVE_COLLINEAR_PRECISION);
+            var decomposed = decomp.quickDecomp(concave);
+
+            if(decomposed.length < 1){
+                console.log("decomp failed");
+                return;
+            }
+
+            for (var i = 0, iEnd = decomposed.length; i < iEnd; i++) {
+                var chunk = decomposed[i];
+
+                // convert vertices into the correct structure
+                var chunkVertices = chunk.map(function(vertices) {
+                    return {
+                        x: vertices[0],
+                        y: vertices[1]
+                    };
+                });
+
+                // skip small chunks
+                if (DECOMP_MINIMUM_AREA > 0 && Vertices.area(chunkVertices) < DECOMP_MINIMUM_AREA)
+                    continue;
+
+                // create a compound part
+                decomped_parts.push({
+                    position: Vertices.centre(chunkVertices),
+                    vertices: chunkVertices
+                });
+            }
+        }    
     }
 
     function countContainsEx(ci, children){
