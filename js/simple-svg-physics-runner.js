@@ -551,13 +551,15 @@ required libraries (and the version tested with)
             var parts = [];
             var decomped_parts = [];
             decompPolygon(vertices, decomped_parts);
-            for (var i = 0, iEnd = decomped_parts.length; i < iEnd; i++) {
-                var part_body = Body.create(Common.extend(decomped_parts[i], options));
-                parts.push(part_body);
+            if(decomped_parts.length > 0){
+                for (var i = 0, iEnd = decomped_parts.length; i < iEnd; i++) {
+                    var part_body = Body.create(Common.extend(decomped_parts[i], options));
+                    parts.push(part_body);
+                }
+                body = Body.create(options);
+                Body.setParts(body, parts);
+                Body.translate(body, center);
             }
-            body = Body.create(options);
-            Body.setParts(body, parts);
-            Body.translate(body, center);
         } else {
             body = Bodies.fromVertices(center.x, center.y, vertices, options);
         }
