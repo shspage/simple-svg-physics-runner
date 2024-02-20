@@ -93,7 +93,8 @@ required libraries (and the version tested with)
         isPause:false,
         wireframes: false,
         gravity_y: 0,
-        frictionAir:FRICTIONAIR_DEFAULT
+        frictionAir:FRICTIONAIR_DEFAULT,
+        _decomp_fail_count:0
     }
 
     // * Ratio to consider pass as circle (Larger ÷ Smaller)
@@ -218,6 +219,8 @@ required libraries (and the version tested with)
 
     function importSVG_paper(data){
         try{
+            _spec._decomp_fail_count = 0;
+
             paper.project.view.viewSize = new paper.Size(
                 window.innerWidth, window.innerHeight);
             
@@ -225,7 +228,11 @@ required libraries (and the version tested with)
             fixTopLeftAfterImport();
             paper2matter();
             
-            alert("LOADED");
+            var msg = "LOADED";
+            if(_spec._decomp_fail_count > 0){
+                msg += " / decomp error (" + _spec._decomp_fail_count + ")";
+            }
+            alert(msg);
         } catch(e){
             alert(e);
         }
@@ -642,6 +649,7 @@ required libraries (and the version tested with)
 
             if(decomposed.length < 1){
                 console.log("decomp failed");
+                _spec._decomp_fail_count++;
                 return;
             }
 
