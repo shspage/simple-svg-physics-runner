@@ -1,7 +1,7 @@
 /*
 simple-svg-physics-runner
 
-2024.02.21, v.1.2.0b1
+2024.02.22, v.1.2.0b2
 
 * Copyright(c) 2018 Hiroyuki Sato
   https://github.com/shspage/simple-svg-physics-runner
@@ -441,6 +441,7 @@ required libraries (and the version tested with)
                 constraint.render.strokeStyle = strokeColor;
                 constraint.render.lineWidth = 1;
                 constraint.render.anchors = false;
+                constraint.label = "hang";
             }
             items.push(constraint);                               
         }
@@ -864,8 +865,9 @@ required libraries (and the version tested with)
                 console.log(e);
                 alert(getMessage("failed_to_export"));
             } finally {
-                layer.remove();
+                active_layer.activate();
                 active_layer.visible = true;
+                layer.remove();
             }
         }
     }
@@ -873,6 +875,7 @@ required libraries (and the version tested with)
     function body2path(){
         var all_bodies = Composite.allBodies(_engine.world);
         var layer = new paper.Layer();
+        layer.activate();
         for(var i = 0, iEnd = all_bodies.length; i < iEnd ; i++){
             var body = all_bodies[i];
             if(!(body.id in _svgShapes)) continue;
@@ -892,6 +895,19 @@ required libraries (and the version tested with)
                 (body.bounds.max.y + body.bounds.min.y) / 2
             );
             path.translate(body_center.subtract(path.position));
+        }
+
+        // export hang constraints
+        var all_constraints = Composite.allConstraints(_engine.world);
+        for(var i = 0, iEnd = all_constraints.length; i < iEnd ; i++){
+            var constraint = all_constraints[i];
+            if(constraint.label == "hang"){
+                var path = new paper.Path.Line(
+                    Constraint.pointAWorld(constraint), 
+                    Constraint.pointBWorld(constraint));
+                path.strokeColor = constraint.render.strokeStyle;
+                path.strokeWidth = constraint.render.strokeWidth;
+            }
         }
         return layer;
     }

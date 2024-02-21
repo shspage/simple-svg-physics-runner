@@ -70,6 +70,9 @@ https://shspage.github.io/simple-svg-physics-runner/
 
 
 ### 変更履歴
+#### v.1.2.0b2
+* "hang" で生成された線をエクスポートされるよう修正。
+
 #### v.1.2.0b1
 * オブジェクト名中の "hang" 等による制御を追加。
 * SVG要素の属性に data-name がある場合、idに代えて使用するよう変更。 
