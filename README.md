@@ -40,6 +40,10 @@ video - https://twitter.com/shspage/status/1757720353638674790
 * Similarly, if it starts with "loop", it will be connected in a loop. (Connect with each nearest and farthest object.)
 * If the group name starts with "chain" and includes " as is"(it needs first space), the original objects will be connected while maintaining their positions.
 
+#### Control by OBJECT name
+* If the name contains "hangN" (N is a natural number), it will generate a line hanging from above. N is the length of the line.
+In addition, if "offsetN" (N: -0.5 to 0.5) is included, the position connected to the line will be shifted by the ratio to the vertical width. In addition, if "#N" (N is a 3-digit or 6-digit hexadecimal number) is included, the line color will be changed. If it contains "hidden", no line will be drawn. These words work even if they are in the name of a group or layer.
+
 ### Try using
 https://shspage.github.io/simple-svg-physics-runner/
 
@@ -69,6 +73,10 @@ in simple-svg-physics-runner.js.
 
 
 ### ChangeLog
+#### v.1.2.0b1
+* Added control using "hang" etc. in object name.
+* If "data-name" is in attributes of an SVG element, it will be used instead of "id".
+
 #### v.1.2.0b
 * Added processing to convert curves to polylines as appropriate.
 * Exports the original SVG shapes, even if polygons and curves are reshaped to handle with the physics engine.

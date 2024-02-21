@@ -1,7 +1,7 @@
 /*
 simple-svg-physics-runner
 
-2024.02.20, v.1.2.0b
+2024.02.21, v.1.2.0b1
 
 * Copyright(c) 2018 Hiroyuki Sato
   https://github.com/shspage/simple-svg-physics-runner
@@ -117,6 +117,7 @@ required libraries (and the version tested with)
     var _render;
     
     var _svgShapes = {}; // { body.id : paper.Item }
+    var _svgDataNames = {}; // { id : data-name }
 
     function setupWorld(items){
         _engine = Engine.create({
@@ -221,6 +222,12 @@ required libraries (and the version tested with)
         try{
             _spec._decomp_fail_count = 0;
 
+            var rex = /\<\w+ id=\"(\w+)\" data-name=\"([^\"]+)\"/g;
+            var m;
+            while((m = rex.exec(data)) !== null){
+                _svgDataNames[m[1]] = m[2];
+            }
+
             paper.project.view.viewSize = new paper.Size(
                 window.innerWidth, window.innerHeight);
             
@@ -303,27 +310,30 @@ required libraries (and the version tested with)
             }
 
             is_wrap = parent_name.includes("wrap");
+        } else {
+            parent_name = "";
         }
 
         for(var i = children.length - 1; i >= 0; i--){
             var c = children[i];
             var body;
+
+            var cname = c.name || "";
+            if(cname != "" && cname in _svgDataNames){
+                cname = _svgDataNames[cname];
+            }
+
             if(c.className == 'Layer'){
-                extractItems(c.children, items, c.name);
+                extractItems(c.children, items, cname);
             } else if(c.className == 'Group'){
-                extractItems(c.children, items, c.name + "." + parent_name);
+                extractItems(c.children, items, cname + "." + parent_name);
             } else if(c.clipMask){
                 c.remove();
-            } else if(c.className == "CompoundPath"){
-                if(!coll_group) coll_group = Body.nextGroup(true);
-                body = createCompoundBody(c, coll_group);
-                if(body){
-                    if(is_wrap) addWrap(body);
-                    items.push(body);
-                    _svgShapes[body.id] = c;
-                }
-            } else if(c.className == "Shape" || c.className == "Path"){
-                if(c.shape == "rectangle"){
+            } else if(c.className == "Shape" || c.className == "Path" || c.className == "CompoundPath"){
+                if(c.className == "CompoundPath"){
+                    if(!coll_group) coll_group = Body.nextGroup(true);
+                    body = createCompoundBody(c, coll_group);
+                } else if(c.shape == "rectangle"){
                     body = createRectangle(c);
                 } else if(c.shape == "circle" || isCircle(c)){
                     body = createCircle(c);
@@ -342,10 +352,11 @@ required libraries (and the version tested with)
                     if(coll_group) body.collisionFilter.group = coll_group;
                     Composite.addBody(grp, body);
                 } else {
-                    if(is_wrap) addWrap(body);
+                    if(!hangBody(cname, parent_name, body, items)){
+                        if(is_wrap) addWrap(body);
+                    }
                     items.push(body);
                 }
-
                 _svgShapes[body.id] = c;
             }
         }
@@ -386,9 +397,59 @@ required libraries (and the version tested with)
           };
     }
 
+    function hangBody(cname, parent_name, body, items){
+        var hanged = false;
+        if(body.isStatic) return hanged;
+        var name = cname + "." + parent_name;
+        var m = name.match(/hang([0-9]+)/);
+        if(m){
+            hanged = true;
+            var len = m[1];
+            //Body.setMass(body, 100);
+            //body.restitution = 1;
+            //Body.setInertia(body, Infinity);
+            //body.friction = 0;
+
+            var height = body.bounds.max.y - body.bounds.min.y;
+
+            var offset = 0;
+            m = name.match(/offset(-?0\.[0-5])/i);
+            if(m){
+                offset = height * m[1];
+            }
+
+            var constraint = Constraint.create({
+                pointA: { x: body.position.x, y: body.position.y - len},
+                bodyB: body,
+                pointB: { x: 0, y: offset },
+            });
+
+            if(name.includes("hidden")){
+                constraint.render.visible = false;
+            } else {
+                var strokeColor = "#000";
+                m = name.match(/#[0-9a-f]{6}/i);
+                if(m){
+                    strokeColor = m[0];
+                } else {
+                    m = name.match(/#[0-9a-f]{3}/i);
+                    if(m){
+                        strokeColor = m[0];
+                    }
+                }
+                constraint.render.type = "line";
+                constraint.render.strokeStyle = strokeColor;
+                constraint.render.lineWidth = 1;
+                constraint.render.anchors = false;
+            }
+            items.push(constraint);                               
+        }
+        return hanged;
+    }
+
     function createChain(grp, parent_name){
         // sort bodies from top to bottom. the pivot of chain is placed at the top body.
-        var as_is = parent_name.includes("_as_is");
+        var as_is = parent_name.includes(" as is");
         if(grp.bodies.length > 1){
             grp.bodies.sort(function(a,b){ return a.position.y - b.position.y; });
             if(as_is){
