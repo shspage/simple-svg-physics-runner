@@ -37,12 +37,11 @@ a : toggle airResistance
 　それ以外のものは物理法則に従って動きます。
 　ドラッグで動かすこともできます。
 
-* 読み込めるのはパス（円と多角形）だけです。複合パスは不可です。  
-  <b>円以外の曲線</b> はアンカーポイントを結ぶ折れ線になります。
+* 読み込めるのはクローズパスだけです。  
 
 * "p" を押すと、ポーズ／再生 を切り替えます。
 
-* "s" を押すと、SVGファイルを出力します。
+* "s" を押すと、SVGファイルを保存します。
 
 * "w" を押すと、ワイヤーフレーム表示を切り替えます。
 
@@ -63,8 +62,7 @@ a : toggle airResistance
 * After loading, the objects filled with <b>black</b> stay on fixed position.  
   Other objeces move according to the law of physics, and draggable.
 
-* It loads only paths (circle and polygon). Compound paths are not available.  
-  Also, <b>the curve other than the circle</b> becomes a polygonal line.
+* It loads only closed paths.
 
 * Hit "p" to toggle pause/play.
 * Hit "s" to export SVG file.
@@ -88,7 +86,7 @@ created by <a href="https://twitter.com/shspage" target="_blank">@shspage</a>
 	<span id="stat_display_ja">表示=通常</span>
 </div>
 <div id="status_en" style="display:none">
-	<span id="stat_gravity_en">gravity=0</span>, 
+	<span id="stat_gravity_en" style="color:red">gravity=0</span>, 
 	<span id="stat_frictionAir_en">airResistance=normal</span>, 
 	<span id="stat_display_en">display=normal</span>
 </div>
